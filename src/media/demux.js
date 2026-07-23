@@ -14,20 +14,27 @@ export function demux(file) {
 
     mp4.onError = (e) => reject(new Error('demux: ' + e));
     mp4.onReady = (info) => {
-      track = info.videoTracks[0];
-      if (!track) return reject(new Error('No video track'));
-      mp4.setExtractionOptions(track.id, null, { nbSamples: Number.MAX_SAFE_INTEGER });
-      mp4.start();
+      try {
+        track = (info?.videoTracks || [])[0];
+        if (!track) return reject(new Error('No video track'));
+        mp4.setExtractionOptions(track.id, null, { nbSamples: Number.MAX_SAFE_INTEGER });
+        mp4.start();
+      } catch (e) { reject(e); }
     };
     mp4.onSamples = (id, user, s) => { for (const x of s) samples.push(x); };
 
     const reader = new FileReader();
+    // EVERYTHING inside onload must be caught: mp4box parses synchronously in
+    // appendBuffer and THROWS on containers it mishandles (e.g. Kinefinity
+    // ProRes MOVs). An uncaught throw here leaves the promise pending forever
+    // and kills the whole import instead of falling through to ffmpeg.wasm.
     reader.onload = () => {
-      const buf = reader.result;
-      buf.fileStart = 0;
-      mp4.appendBuffer(buf);
-      mp4.flush();
       try {
+        const buf = reader.result;
+        buf.fileStart = 0;
+        mp4.appendBuffer(buf);
+        mp4.flush();
+        if (!track) return reject(new Error('No video track'));
         const description = getDescription(mp4, track);
         const durSec = track.samples_duration && track.timescale ? (track.samples_duration / track.timescale)
           : (track.duration && track.timescale ? track.duration / track.timescale : 0);

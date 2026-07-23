@@ -94,8 +94,7 @@
         <button class="accent" id="importBtn" style="width:100%;margin:8px 0 4px"><svg class="ic"><use href="#i-folder"/></svg>Import media…</button>
         <button class="ghost" id="importFolderBtn" style="width:100%;margin:0 0 4px"><svg class="ic"><use href="#i-folder"/></svg>Import folder…</button>
         <input type="file" id="fileInput" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm,.avi,.mts,.m2ts,.3gp" multiple hidden>
-        <div class="statline" id="importHint" style="margin-top:6px">MP4 / MOV · H.264 &amp; H.265 — or drag &amp; drop. On Android, pick from <b>Files → Downloads</b>. Proxies build automatically.</div>
-      </div>
+              </div>
       <div class="glass card">
         <h3>Bins</h3>
         <div class="bin-list" id="binList"><div class="statline">All media</div></div>
@@ -161,19 +160,15 @@
       </div>
       <div class="glass card side-panel hidden" data-st="fx" style="flex:1;min-height:0;overflow:auto">
         <h3 style="margin:0 0 4px">Generators</h3>
-        <p class="statline" style="margin:0 0 8px">Add to the timeline at the playhead.</p>
-        <div class="fx-grid" id="fxGenerators"></div>
+                <div class="fx-grid" id="fxGenerators"></div>
         <h3 style="margin:16px 0 4px">Effects</h3>
-        <p class="statline" style="margin:0 0 8px">One-tap grade presets for the selected clip.</p>
-        <div class="fx-grid" id="fxEffects"></div>
-        <h3 style="margin:16px 0 4px">More soon</h3>
-        <p class="statline" style="margin:0">Blur, masks, transitions library and audio FX will live here.</p>
+                <div class="fx-grid" id="fxEffects"></div>
       </div>
     </aside>
     <div class="stage-main">
       <div class="pv-stage">
         <canvas class="pv-canvas" id="editCanvas"></canvas>
-        <div class="pv-empty" id="editEmpty"><div class="big">🎬</div><div><b>No preview yet.</b><br>Add clips to the timeline — they play back to back through the GPU pipeline.</div></div>
+        <div class="pv-empty" id="editEmpty"><div class="big">🎬</div><div><b>No preview yet.</b><br>Add clips to the timeline.</div></div>
       </div>
       <div class="pv-ctrl" id="editCtrl">
         <div class="controls-row">
@@ -351,8 +346,7 @@
         </div>
         <div class="glass card">
           <h3>Tone</h3>
-          <p class="statline" style="margin:0 0 8px">Zone gains keep black anchored — lift shadow detail without wash-out; tone map rolls highlights off filmically.</p>
-          <div class="slider-row"><label>Shadows</label><input type="range" id="a_toneSh" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+                    <div class="slider-row"><label>Shadows</label><input type="range" id="a_toneSh" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
           <div class="slider-row"><label>Highlights</label><input type="range" id="a_toneHi" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
           <div class="slider-row"><label>Tone map</label><input type="range" id="a_toneMap" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
         </div>
@@ -374,16 +368,14 @@
           <div class="color-sub" id="hslMode">
             <button data-m="hue">Hue&thinsp;·&thinsp;Hue</button><button class="on" data-m="sat">Hue&thinsp;·&thinsp;Sat</button><button data-m="lum">Hue&thinsp;·&thinsp;Lum</button>
           </div>
-          <p class="statline" style="margin:0 0 8px">Shift, boost or mute individual colour ranges.</p>
-          <div id="hslRows"></div>
+                    <div id="hslRows"></div>
         </div>
       </div>
 
       <div class="color-tools hidden" id="csMask" data-cs="mask">
         <div class="glass card">
           <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">Qualifier</h3><button class="reset-btn" id="mReset" title="Reset mask" aria-label="Reset mask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div>
-          <p class="statline" style="margin:0 0 8px">Pick a colour in the video — the grade then only touches that colour.</p>
-          <div class="row" style="gap:8px;margin-bottom:6px">
+                    <div class="row" style="gap:8px;margin-bottom:6px">
             <button class="ghost" id="mqPick" style="flex:1"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Pick colour</button>
             <span id="mqSwatch" style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border-medium);background:#26262a;flex:none"></span>
           </div>
@@ -392,8 +384,7 @@
         </div>
         <div class="glass card">
           <h3>Window</h3>
-          <p class="statline" style="margin:0 0 8px">Limit the grade to a region — drag on the video to move it.</p>
-          <div class="color-sub" id="mwShape">
+                    <div class="color-sub" id="mwShape">
             <button class="on" data-shape="off">Off</button><button data-shape="circle">Circle</button><button data-shape="rect">Rect</button><button data-shape="linear">Linear</button>
           </div>
           <div class="slider-row"><label>Width</label><input type="range" id="mwRx" min="0.05" max="1" step="0.01" value="0.35" data-default="0.35"><span class="val">0.35</span></div>
@@ -426,22 +417,19 @@
         </div>
         <div class="glass card" data-fx="glow">
           <h3>Glow</h3>
-          <p class="statline" style="margin:0 0 8px">Exponential bloom — highlights bleed softly over their surroundings.</p>
-          <div class="slider-row"><label>Amount</label><input type="range" id="a_glow" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+                    <div class="slider-row"><label>Amount</label><input type="range" id="a_glow" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
           <div class="slider-row"><label>Threshold</label><input type="range" id="a_glowThreshold" min="0" max="1" step="0.01" value="0.6" data-default="0.6"><span class="val">0.60</span></div>
           <div class="slider-row"><label>Radius</label><input type="range" id="a_glowRadius" min="0.05" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
         </div>
         <div class="glass card" data-fx="distort">
           <h3>Distort</h3>
-          <p class="statline" style="margin:0 0 8px">Turbulence displace — an evolving noise field warps the image.</p>
-          <div class="slider-row"><label>Amount</label><input type="range" id="a_distort" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+                    <div class="slider-row"><label>Amount</label><input type="range" id="a_distort" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
           <div class="slider-row"><label>Scale</label><input type="range" id="a_distortScale" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
           <div class="slider-row"><label>Speed</label><input type="range" id="a_distortSpeed" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
         </div>
         <div class="glass card" data-fx="wiggle">
           <h3>Wiggle</h3>
-          <p class="statline" style="margin:0 0 8px">Smooth random position jitter — handheld/energy feel.</p>
-          <div class="slider-row"><label>Amount</label><input type="range" id="a_wiggle" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+                    <div class="slider-row"><label>Amount</label><input type="range" id="a_wiggle" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
           <div class="slider-row"><label>Speed</label><input type="range" id="a_wiggleFreq" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
         </div>
       </div>

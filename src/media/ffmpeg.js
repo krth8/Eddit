@@ -45,7 +45,7 @@ async function fetchBlobURL(url, mime, onProgress) {
   }
 }
 
-let _ff = null, _loading = null, _mt = false;
+let _ff = null, _loading = null, _mt = false, _forceST = false;
 
 export function ffmpegLoaded() { return !!_ff; }
 export function ffmpegLoading() { return !!_loading && !_ff; }
@@ -75,7 +75,7 @@ export async function getFFmpeg(onStatus) {
   _loading = (async () => {
     // multi-threaded core (much faster) needs SharedArrayBuffer → cross-origin
     // isolation. Try it when COI is available; fall back to single-thread.
-    const wantMt = !!self.crossOriginIsolated;
+    const wantMt = !!self.crossOriginIsolated && !_forceST;
     let ff;
     if (wantMt) {
       try { ff = await loadCore('core-mt', true, onStatus); }
@@ -94,6 +94,22 @@ export async function getFFmpeg(onStatus) {
 // converted to 8-bit yuv420p; the log signal is preserved so the Color tab's
 // Log->Rec.709 transform/LUT still applies.
 export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
+  try {
+    return await runTranscode(file, targetH, onProgress, onStatus, false);
+  } catch (e) {
+    // A wasm OOM (e.g. 6K ProRes: 85MB frames × decoder buffers × x264
+    // threads) ABORTS the worker, leaving the core unusable — reload a
+    // single-threaded core and retry once with minimal memory. Threads are the
+    // memory multiplier, so 1 thread fits where 16 blow the heap.
+    console.warn('[ffmpeg] transcode failed, retrying with the low-memory engine:', e?.message || e);
+    onStatus?.('retrying with low-memory engine…', null);
+    _ff = null; _loading = null; _forceST = true;
+    try { return await runTranscode(file, targetH, onProgress, onStatus, true); }
+    finally { _forceST = false; }
+  }
+}
+
+async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
   const ff = await getFFmpeg(onStatus);
   const outName = 'proxy.mp4';
   const MDIR = '/in';
@@ -128,7 +144,24 @@ export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
 
   try {
     onStatus?.('converting…', 0);
-    const threads = _mt ? Math.max(2, Math.min(16, navigator.hardwareConcurrency || 4)) : 1;
+    // Frame size decides how many threads the wasm heap can afford: every
+    // thread holds full decoded frames (6K yuv422p10 ≈ 85MB each), so big
+    // frames must run narrow or the worker aborts with OOM. Read the stream
+    // dimensions with a header-only pass first.
+    let mp = 0;
+    try {
+      const probeLogs = [];
+      const cb = ({ message }) => probeLogs.push(message);
+      ff.on('log', cb);
+      await ff.exec(['-hide_banner', '-i', inPath]).catch(() => {}); // exits non-zero by design
+      ff.off?.('log', cb);
+      const m = probeLogs.join('\n').match(/Video:.*?(\d{3,5})x(\d{3,5})/);
+      if (m) { mp = (+m[1] * +m[2]) / 1e6; console.log('[ffmpeg] source ~' + mp.toFixed(1) + 'MP → thread cap'); }
+    } catch {}
+    let threads = _mt ? Math.max(2, Math.min(16, navigator.hardwareConcurrency || 4)) : 1;
+    if (lowMem) threads = 1;
+    else if (mp > 12) threads = Math.min(threads, 2);   // 5K/6K+
+    else if (mp > 8) threads = Math.min(threads, 4);    // 4K
     const code = await ff.exec([
       '-threads', String(threads),
       // decoder shortcuts: skip the in-loop deblock filter and allow non-spec
@@ -138,22 +171,26 @@ export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
       '-i', inPath,
       '-vf', `scale=-2:${Math.round(targetH / 2) * 2}:flags=fast_bilinear,format=yuv420p`,
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-g', '1', // all-intra, fast
+      // all-intra needs no lookahead — dropping it saves per-thread buffers
+      '-x264-params', 'rc-lookahead=0:sync-lookahead=0',
       '-threads', String(threads),
       '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', outName,
     ]);
     let data = null;
-    try { data = await ff.readFile(outName); } catch {}
+    try { data = await withTimeout(ff.readFile(outName), 20000, 'read timed out'); } catch {}
     ff.deleteFile(outName).catch(() => {});
     if (!data || !data.length) {
       const tail = logs.filter((l) => /error|invalid|not found|unable|could not|no such|memory|abort|fail|permission/i.test(l)).slice(-3).join(' — ')
         || logs.slice(-3).join(' — ') || `exit code ${code}`;
-      throw new Error(tail);
+      throw new Error(/abort|oom|memory/i.test(tail) ? 'out of memory decoding this resolution' : tail);
     }
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     onStatus?.('done', 1);
     return blob;
   } finally {
-    if (mounted) await ff.unmount(MDIR).catch(() => {});
+    // a dead (OOM-aborted) worker never answers — timeout-guard the cleanup so
+    // the retry path isn't wedged behind an unmount that will never resolve
+    if (mounted) await withTimeout(ff.unmount(MDIR), 3000, 'unmount timed out').catch(() => {});
     if (wroteName) ff.deleteFile(wroteName).catch(() => {});
     ff.off?.('log', logCb);
     ff.off?.('progress', progCb);
