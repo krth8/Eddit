@@ -7,7 +7,7 @@ import { demux } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut } from '../luts.js';
-import { transcodeToProxy, ffmpegLoaded, ffmpegMultithread } from '../media/ffmpeg.js';
+import { ffmpegLoaded, ffmpegMultithread } from '../media/ffmpeg.js';
 
 let engine = null;
 let caps = { decode: false, encode: false, hevc: false };
@@ -21,9 +21,9 @@ const dirOf = (m) => (m.path || '').split('/').slice(0, -1).join('/');
 export async function initMedia(eng) {
   engine = eng;
   caps = await codecSupport();
-  el('codecPill').textContent = caps.hevc10 ? 'H.264 · H.265 10-bit' : caps.hevc ? 'H.264 · H.265 8-bit' : caps.decode ? 'H.264 · H.265 via <video>' : 'no WebCodecs';
-  el('codecPill').classList.toggle('ok', caps.encode);
-  el('codecPill').title = `decode ${caps.decode ? '✓' : '✗'} · encode ${caps.encode ? '✓' : '✗'} · HEVC ${caps.hevc ? '✓' : '✗'} · HEVC-10 ${caps.hevc10 ? '✓' : '✗'}`;
+  // codec capability line lives in the diagnostics overlay (header pills are gone)
+  const codecLine = caps.hevc10 ? 'H.264 · H.265 10-bit' : caps.hevc ? 'H.264 · H.265 8-bit' : caps.decode ? 'H.264 · H.265 via <video>' : 'no WebCodecs';
+  if (window.__eddit) window.__eddit.codecLine = codecLine; else window.__eddit = { codecLine };
   ffUI();  // set initial ffmpeg pill state
 
   const doPick = async () => { const files = await pickMedia(); if (files.length) importFiles(files); };
@@ -63,61 +63,73 @@ export async function initMedia(eng) {
   renderGrid();
 }
 
+const VIDEO_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts|m2ts|3gp|hevc)$/i;
+
 async function importFiles(files) {
-  // The user explicitly picked these files, so don't gate on MIME/extension
-  // (Android/Chrome OS pickers often report an empty type or a name without a
-  // recognised extension). Skip only clear images; let the decoder be the judge
-  // for everything else.
+  // Folder imports sweep in sidecars (wav/cube/bmp/Thumbs.db…) — keep only
+  // real video files.
   files = [...files];
-  const imgs = files.filter((f) => f.type.startsWith('image') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name));
-  const vids = files.filter((f) => !imgs.includes(f));
-  if (!files.length) return toast('No files selected', true);
-  if (imgs.length) toast(`${imgs.length} image(s) skipped — video only for now`);
-  if (!vids.length) return toast('No video files selected', true);
-  let added = 0;
+  const vids = files.filter((f) => f.type.startsWith('video') || VIDEO_EXT.test(f.name));
+  const skipped = files.length - vids.length;
+  if (!vids.length) return toast(skipped ? 'No video files in the selection' : 'No files selected', true);
+  if (skipped) toast(`${skipped} non-video file${skipped === 1 ? '' : 's'} skipped`);
+
+  // PHASE 1 — index: every clip gets its pool card up front. Probing and proxy
+  // building follow in the background, so one slow/exotic file can never block
+  // the rest of the import (importing a folder of 6K ProRes used to stall).
+  const work = [];
   for (const file of vids) {
+    console.log('[import]', file.name, '· type:', file.type || '(none)', '· size:', file.size);
     // re-link: a restored-but-unlinked slot matching this file keeps its clips
     const existing = state.media.find((x) => !x.file && x.name === file.name && x.size === file.size);
     if (existing) {
-      const meta = await probe(file);
-      existing.file = file; existing.url = meta.url; existing.handle = handleMap.get(file) || null;
-      // always adopt the fresh thumb — a stored one may be black (pre-b62 probe)
-      existing.playable = meta.playable; if (meta.thumb) existing.thumb = meta.thumb;
-      if (meta.width) existing.width = meta.width; if (meta.height) existing.height = meta.height;
-      if (!existing.proxyReady && el('autoProxy').checked) queueProxy(existing, false);
-      toast('Re-linked ' + file.name); renderGrid(); bus.emit('media:changed'); continue;
-    }
-    console.log('[import]', file.name, '· type:', file.type || '(none)', '· size:', file.size);
-    const meta = await probe(file);
-    // <video> gives 0×0 for anything the OS pipeline can't decode (e.g. HEVC on
-    // a Chromebook with no HEVC hardware, or a spurious probe timeout). That is
-    // NOT the same as "undecodable" — WebCodecs often decodes what <video>
-    // won't. So read real dimensions from the container demuxer and let the
-    // tiered proxy builder try WebCodecs FIRST; ffmpeg stays the last resort.
-    let W = meta.width, H = meta.height;
-    if (!W || !H) {
-      try { const d = await demux(file); W = d.width; H = d.height; if (d.rotation === 90 || d.rotation === 270) { W = d.height; H = d.width; } if (!meta.duration && d.duration) meta.duration = d.duration; console.log('[import] <video> failed, demux dims', W + '×' + H, '·', d.codec, file.name); }
-      catch (e) { console.log('[import] demux failed', file.name, e?.message || e); }
-    }
-    if (!W || !H) {
-      // opaque even to the demuxer (odd container mp4box can't read) → ffmpeg
-      console.log('[import] undecodable + un-demuxable → ffmpeg.wasm', file.name);
-      if (await convertWithFfmpeg(file, meta)) added++;
+      existing.file = file; existing.handle = handleMap.get(file) || null;
+      work.push({ m: existing, file, relink: true });
       continue;
     }
     const m = addMedia({
       size: file.size, path: pathMap.get(file) || file.webkitRelativePath || '',
-      name: file.name, file, handle: handleMap.get(file) || null, url: meta.url,
-      width: W, height: H, duration: meta.duration,
-      thumb: meta.thumb, playable: meta.playable,
-      proxyReady: false, proxyUrl: null,
+      name: file.name, file, handle: handleMap.get(file) || null, url: null,
+      width: 0, height: 0, duration: 0, thumb: null, playable: false,
+      proxyReady: false, proxyUrl: null, proxyStatus: el('autoProxy').checked ? 'queued' : '',
     });
-    added++;
-    if (el('autoProxy').checked) queueProxy(m, false);
+    work.push({ m, file, relink: false });
+  }
+  renderGrid();
+  toast(`Indexed ${work.length} clip${work.length === 1 ? '' : 's'}`);
+
+  // PHASE 2 — probe metadata per clip, then hand it to the proxy queue (whose
+  // ffmpeg tier also converts clips nothing native can decode)
+  for (const { m, file, relink } of work) {
+    if (m.removed) continue;
+    try {
+      const meta = await probe(file);
+      m.url = meta.url; m.playable = meta.playable;
+      if (meta.width) { m.width = meta.width; m.height = meta.height; }
+      if (meta.duration && !m.duration) m.duration = meta.duration;
+      if (meta.thumb) m.thumb = meta.thumb;   // fresh thumb also on re-link
+      if (!m.width || !m.height) {
+        // real dimensions from the container demuxer — WebCodecs often decodes
+        // what <video> won't, so 0×0 here is not "undecodable". Only for
+        // modest files: the demuxer reads the WHOLE file into memory, and for
+        // big camera originals the proxy supplies the dimensions anyway.
+        if (file.size < 3e8) {
+          try {
+            const d = await demux(file);
+            let W = d.width, H = d.height;
+            if (d.rotation === 90 || d.rotation === 270) { const t = W; W = H; H = t; }
+            if (W && H) { m.width = W; m.height = H; }
+            if (!m.duration && d.duration) m.duration = d.duration;
+          } catch (e) { console.log('[import] demux failed', file.name, e?.message || e); }
+        }
+      }
+    } catch (e) { console.warn('[import] probe failed', file.name, e); }
+    updateCard(m);
+    bus.emit('media:changed');
+    if (relink) toast('Re-linked ' + file.name);
+    if (el('autoProxy').checked) { if (!m.proxyReady) queueProxy(m, false); }
     else ensureStrip(m);   // no proxy coming — build the hover strip off the original
   }
-  if (added) toast(`Imported ${added} clip${added === 1 ? '' : 's'}`);
-  else toast('None of the selected files could be decoded here', true, 5000);
 }
 
 // visible ffmpeg.wasm status: header pill + a prominent progress banner
@@ -143,41 +155,6 @@ function ffError(name, msg) {
   box.classList.add('show', 'err');
   box.innerHTML = `<b>ffmpeg failed</b> — ${name}: ${msg} &nbsp; <span style="opacity:.6">(click to dismiss)</span>`;
   box.onclick = () => { box.classList.remove('show', 'err'); box.onclick = null; };
-}
-
-// Software fallback: transcode an undecodable source to an H.264 all-intra
-// proxy with ffmpeg.wasm, then use that as the working media (the original
-// can't be decoded here anyway). Overridable via window.__eddit for testing.
-async function convertWithFfmpeg(file, meta) {
-  const targetH = parseInt(el('proxyH').value, 10) || 720;
-  const prog = el('proxyProg'); prog.classList.remove('hidden'); prog.firstElementChild.style.width = '0%';
-  el('proxyStat').textContent = 'converting ' + file.name;
-  toast(`${file.name}: no native decoder — converting with ffmpeg.wasm…`, false, 5000);
-  try {
-    const fn = (window.__eddit && window.__eddit._transcode) || transcodeToProxy;
-    const blob = await fn(file, targetH,
-      (p) => { prog.firstElementChild.style.width = (p * 100).toFixed(0) + '%'; },
-      (text, pct) => { ffUI(text, pct); });
-    const url = URL.createObjectURL(blob);
-    const pmeta = await probe(blob);
-    const m = addMedia({
-      size: file.size, path: pathMap.get(file) || file.webkitRelativePath || '',
-      name: file.name, file, handle: handleMap.get(file) || null, url,
-      width: pmeta.width || 0, height: pmeta.height || 0, duration: pmeta.duration || meta.duration || 0,
-      thumb: pmeta.thumb, playable: true,
-      proxyReady: true, proxyUrl: url, proxyBlob: blob, proxyMethod: 'ffmpeg', proxyStatus: 'ready',
-    });
-    const key = proxyKey(file, targetH); m.proxyKey = key; withTimeout(saveProxy(key, blob), 8000, 'opfs').catch(() => {});
-    renderGrid(); bus.emit('media:changed');
-    toast(`Converted ${file.name} with ffmpeg.wasm`);
-    return true;
-  } catch (e) {
-    console.error('ffmpeg transcode failed for', file.name, e);
-    ffError(file.name, e.message || String(e));
-    return false;
-  } finally {
-    prog.classList.add('hidden'); el('proxyStat').textContent = 'idle';
-  }
 }
 
 function queueProxy(m, force) {
@@ -234,8 +211,17 @@ async function runQueue() {
         if (m.removed) continue;
         m.proxyUrl = res.url; m.proxyBlob = res.blob; m.proxyW = res.width; m.proxyH = res.height;
         m.proxyKey = key; m.proxyReady = true; m.proxyStatus = 'ready'; m.proxyMethod = res.method; m.proxyError = null;
-        // originals <video> can't decode have no poster — grab one off the H.264 proxy
-        if (!m.thumb && res.blob) { try { const pm = await probe(res.blob); if (pm.thumb) m.thumb = pm.thumb; if (pm.url) URL.revokeObjectURL(pm.url); } catch {} }
+        // originals <video> can't decode have no poster/dims/duration — adopt
+        // them off the H.264 proxy (ffmpeg-tier clips arrive here with 0×0)
+        if ((!m.thumb || !m.width || !m.duration) && res.blob) {
+          try {
+            const pm = await probe(res.blob);
+            if (!m.thumb && pm.thumb) m.thumb = pm.thumb;
+            if (!m.width && pm.width) { m.width = pm.width; m.height = pm.height; }
+            if (!m.duration && pm.duration) m.duration = pm.duration;
+            if (pm.url) URL.revokeObjectURL(pm.url);
+          } catch {}
+        }
         withTimeout(saveProxy(key, res.blob), 8000, 'opfs-save').catch(() => {}); // fire-and-forget
         // autosave NOW so proxyKey survives a hard stop — without this the key
         // only reached IndexedDB when something else happened to trigger a save,

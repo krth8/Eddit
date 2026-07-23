@@ -56,7 +56,7 @@ function renderDiag() {
 function openDiag() {
   const b = document.getElementById('diagBuild'); if (b) b.textContent = BUILD;
   const caps = document.getElementById('diagCaps');
-  if (caps) caps.textContent = `WebGPU ${renderer.ok ? '✓' : '✗'} · ${document.getElementById('codecPill').textContent} · COI ${self.crossOriginIsolated} · ${navigator.userAgent}`;
+  if (caps) caps.textContent = `WebGPU ${renderer.ok ? '✓' : '✗'} · ${window.__eddit?.codecLine || ''} · COI ${self.crossOriginIsolated} · ${navigator.userAgent}`;
   renderDiag();
   document.getElementById('diagOverlay').classList.remove('hidden');
 }
@@ -65,9 +65,6 @@ async function boot() {
   console.log('%cEddit ' + BUILD, 'color:#5fd598;font-weight:700');
   const bt = el('buildTag'); if (bt) bt.textContent = BUILD;
   const supported = await renderer.init();
-  el('gpuPill').textContent = supported ? 'WebGPU ✓' : 'no WebGPU';
-  el('gpuPill').classList.toggle('ok', supported);
-  el('gpuPill').classList.toggle('bad', !supported);
   if (!supported) toast('WebGPU not available — use Chrome/Edge 113+ with GPU enabled', true, 6000);
 
   engine = new Engine(renderer);
@@ -166,11 +163,10 @@ async function boot() {
   });
 
   bus.on('frame:drawn', onFrameDrawn);
-  window.__eddit = { renderer, engine, state, bus };
+  window.__eddit = { ...window.__eddit, renderer, engine, state, bus };
 
   // diagnostics overlay (tap the ffmpeg pill or the build tag)
-  el('ffPill').onclick = openDiag;
-  el('buildTag').onclick = openDiag;
+  if (el('brandLogo')) el('brandLogo').onclick = openDiag;   // quiet diagnostics entry
   el('diagClose').onclick = () => el('diagOverlay').classList.add('hidden');
   el('diagClear').onclick = () => { DIAG.length = 0; renderDiag(); };
   el('diagCopy').onclick = async () => {

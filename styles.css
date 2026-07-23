@@ -684,7 +684,7 @@ input[type=range]{accent-color:var(--accent)}
 :root[data-layout="narrow"] #projBtn svg{margin:0}
 :root[data-layout="narrow"] header{gap:10px;padding:0 12px}
 :root[data-layout="narrow"] .main-tab{padding:5px 12px}
-:root[data-layout="narrow"] #ffPill,:root[data-layout="narrow"] #codecPill,:root[data-layout="narrow"] #buildTag,:root[data-layout="narrow"] #gpuPill{display:none}
+:root[data-layout="narrow"] .pj-lbl{display:none}
 /* narrow: tool sidebars become drawers that cover the timeline, never the video */
 :root[data-layout="narrow"] .side,
 :root[data-layout="narrow"] .side-r{
