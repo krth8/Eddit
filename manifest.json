@@ -1,0 +1,17 @@
+{
+  "name": "Eddit — WebGPU Video Editor",
+  "short_name": "Eddit",
+  "description": "Client-side WebGPU/WebCodecs video & image editor: cut, grade, and export H.264/H.265 footage entirely in the browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0d0d10",
+  "theme_color": "#0d0d10",
+  "categories": ["video", "productivity", "photo"],
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

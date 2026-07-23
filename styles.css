@@ -1,0 +1,875 @@
+:root{
+  /* neutral charcoal surfaces (FCP / Resolve-style) — separation by shade, not borders */
+  --bg-dark:#161618; --bg-solid:#1c1c1e; --bg-secondary:#232326;
+  --bg-panel:#1d1d20; --bg-elevated:#2a2a2e; --bg-hover:#333338; --bg:#141416;
+  --border:rgba(255,255,255,.075); --border-medium:rgba(255,255,255,.15);
+  --text:#f5f5f7; --text-muted:#98989f; --text-secondary:#c9c9ce;
+  /* sparse pastel accents: mint = action, soft yellow = selection */
+  --accent:#5fd598; --accent-hover:#7ce0ac; --accent-light:#b7f0d3;
+  --accent-glow:rgba(95,213,152,.3); --accent-bg:rgba(95,213,152,.13);
+  --on-accent:#0d2318;
+  --sel:#ffdf6b; --sel-bg:rgba(255,223,107,.14);
+  --success:#5fd598; --warning:#ffdf6b; --danger:#ff8a7a; --info:#8ed4dd; --orange:#ffbe8a;
+  --radius-sm:7px; --radius-md:10px; --radius-lg:14px; --radius-full:9999px;
+  --tf:.15s ease; --tn:.25s ease;
+}
+.ic{width:15px;height:15px;fill:currentColor;flex:none}
+html{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:13.5px/1.45 system-ui,'Segoe UI',Roboto,sans-serif;color:var(--text);
+  background:var(--bg-dark);display:flex;flex-direction:column;overflow:hidden;
+  /* app feel: no text selection / long-press callout — inputs opt back in below */
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+input,textarea,#diagLog{user-select:text;-webkit-user-select:text}
+button{font:inherit;cursor:pointer;border:0;border-radius:var(--radius-full);
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  background:var(--accent);color:var(--on-accent);font-weight:650;padding:8px 16px;transition:var(--tf)}
+button:hover{background:var(--accent-hover)}
+button:disabled{opacity:.4;cursor:default}
+button.ghost{background:var(--bg-elevated);color:var(--text);border:0}
+button.ghost:hover{background:var(--bg-hover)}
+input:not([type=checkbox]):not([type=range]):not([type=color]),textarea,select{font:inherit;width:100%;color:var(--text);
+  background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 11px;transition:var(--tf)}
+input:focus,textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:16px;height:16px;flex:none;margin:0;
+  border:1px solid var(--border-medium);border-radius:5px;background:var(--bg-secondary);cursor:pointer;position:relative}
+input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;
+  border:solid var(--on-accent);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=range]{appearance:none;-webkit-appearance:none;height:5px;border-radius:var(--radius-full);
+  background:var(--bg-hover);cursor:pointer;padding:0}
+input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;
+  border-radius:50%;background:var(--accent);cursor:pointer;box-shadow:0 0 0 3px var(--accent-bg)}
+textarea{resize:vertical;min-height:76px}
+label{display:block;font-size:12px;color:var(--text-muted);margin:11px 0 5px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--bg-hover);border-radius:var(--radius-full);border:2px solid transparent;background-clip:padding-box}
+.glass{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.hidden{display:none!important}
+
+/* header + tabs (neutral segmented control, FCP-style) */
+/* grid: brand left, tabs CENTERED, badges/buttons right */
+header{height:50px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:0 18px;
+  border-bottom:1px solid var(--border);background:var(--bg-solid);z-index:10}
+.brand{justify-self:start}
+.hdr-right{display:flex;align-items:center;gap:8px;justify-self:end;min-width:0}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px;letter-spacing:.2px}
+.brand svg{border-radius:7px}
+.main-tabs{position:relative;display:flex;gap:2px;background:var(--bg-secondary);
+  padding:3px;border-radius:var(--radius-md)}
+.main-tab{position:relative;z-index:2;background:transparent;color:var(--text-muted);
+  padding:5px 18px;border-radius:7px;font-weight:600;font-size:12.5px}
+.main-tab:hover{background:transparent;color:var(--text)}
+.main-tab.active{color:var(--text)}
+.tab-indicator{position:absolute;top:3px;bottom:3px;z-index:1;border-radius:7px;
+  background:var(--bg-hover);transition:var(--tn)}
+.spacer{flex:1}
+.hint{color:var(--text-muted);font-size:12px}
+.pill{font-size:10.5px;padding:3px 9px;border-radius:var(--radius-full);background:var(--bg-secondary);
+  color:var(--text-muted);border:1px solid var(--border)}
+.pill.ok{color:var(--success);border-color:var(--accent-bg)}
+.pill.bad{color:var(--danger)}
+
+main{flex:1;min-height:0;position:relative}
+.tab-panel{position:absolute;inset:0;display:none;min-height:0}
+@keyframes tabIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.tab-panel.active{display:flex;animation:tabIn .3s cubic-bezier(.22,.9,.36,1)}
+/* views are fully separate: only the active view ever renders. This guard means
+   no per-view layout rule (e.g. a landscape grid on #edit/#color) can leak its
+   view on top of another — the ONLY cross-platform differences are layout and
+   navigation, never which view is shown. */
+.tab-panel:not(.active){display:none !important}
+
+/* generic cards */
+.card{padding:15px}
+.card h3{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-muted);font-weight:700}
+.row{display:flex;gap:8px;align-items:center}
+.side{width:clamp(280px,24vw,360px);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:14px;
+  border-right:1px solid var(--border)}
+.side-r{width:clamp(280px,25vw,360px);padding:16px;overflow:auto;display:flex;flex-direction:column;gap:14px;
+  border-left:1px solid var(--border)}
+
+/* ============ MEDIA tab ============ */
+.media-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)}
+.chip{background:var(--bg-elevated);border:0;color:var(--text-muted);display:inline-flex;
+  align-items:center;gap:5px;padding:5px 12px;border-radius:var(--radius-full);cursor:pointer;font-size:12px;transition:var(--tf)}
+.chip:hover{background:var(--bg-hover);color:var(--text)}
+.chip.on{background:var(--accent);color:var(--on-accent)}
+.chip .ic{width:12px;height:12px}
+.grid{--tw:215px;--th:120px;flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:grid;gap:13px;
+  align-content:start;grid-auto-rows:min-content;
+  grid-template-columns:repeat(auto-fill,minmax(var(--tw),1fr))}
+.clip{border-radius:var(--radius-md);overflow:hidden;cursor:pointer;position:relative;
+  background:var(--bg-panel);border:1px solid var(--border);transition:var(--tf)}
+.clip:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.clip.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.clip-del{position:absolute;top:6px;right:6px;z-index:3;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.62);color:#fff;border-radius:50%;font-size:12px;opacity:0;transition:var(--tf);cursor:pointer}
+.clip:hover .clip-del{opacity:1}
+.clip-del:hover{background:var(--danger);color:#1c1c1e}
+.clip .thumbbox{position:relative;height:var(--th);background:#0d0d10;overflow:hidden;
+  background-size:cover;background-position:center;transition:filter .7s ease}
+/* per-clip proxy states — clips arrive greyed, then pop to colour when the proxy lands */
+.clip.proxy-pending .thumbbox{filter:grayscale(1) brightness(.5)}
+.clip.proxy-unlinked .thumbbox{filter:grayscale(1) brightness(.6)}
+.clip.proxy-building .thumbbox{filter:grayscale(.7) brightness(.7)}
+.clip .card-spin{position:absolute;inset:0;margin:auto;width:24px;height:24px;border-radius:50%;display:none;
+  border:2.5px solid rgba(255,255,255,.25);border-top-color:var(--accent);animation:binspin .8s linear infinite}
+.clip.proxy-pending:not(.proxy-building) .card-spin{display:block}
+/* per-clip proxy progress bar (shown while building; replaces the spinner) */
+.clip .card-prog{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;height:5px;display:none;
+  background:rgba(0,0,0,.55);border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.clip .card-prog i{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);
+  transition:width .18s ease}
+@keyframes freshGlow{0%{box-shadow:0 0 0 2px var(--accent-glow),0 8px 24px rgba(0,0,0,.4)}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes freshMeta{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.clip.fresh{animation:freshGlow 1.5s ease-out}
+.clip.fresh .meta{animation:freshMeta .5s cubic-bezier(.22,.9,.36,1) both}
+/* title animation in/hold/out dual-range (flight-slider style) */
+.ar-wrap{margin-top:10px}
+.ar-cap{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;color:var(--text-muted);
+  margin-bottom:2px;font-variant-numeric:tabular-nums}
+.ar-cap .ar-mid{opacity:.55;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase}
+.ar-track{position:relative;height:28px;touch-action:none}
+.ar-track::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;margin-top:-2px;border-radius:2px;background:var(--bg-hover)}
+.ar-fill{position:absolute;top:50%;height:4px;margin-top:-2px;border-radius:2px;background:var(--accent)}
+.ar-knob{position:absolute;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:grab;touch-action:none}
+.ar-knob:active{cursor:grabbing;transform:scale(1.15)}
+
+/* hover-scrub preview (desktop): shared <video> under the badges + playhead line
+   — used by both the Media grid (.thumbbox) and the Edit pool (.pt-img) */
+.thumbbox .scrub-vid,.pt-img .scrub-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  pointer-events:none;background:#0d0d10;z-index:1}
+.thumbbox .scrub-strip,.pt-img .scrub-strip{position:absolute;inset:0;pointer-events:none;z-index:1;
+  background-color:#0d0d10;background-repeat:no-repeat}
+.thumbbox .scrub-line,.pt-img .scrub-line{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;z-index:2;
+  background:var(--accent);box-shadow:0 0 4px var(--accent-glow);pointer-events:none}
+.clip .thumbbox.nothumb::after{content:"🎞";position:absolute;inset:0;display:flex;
+  align-items:center;justify-content:center;font-size:26px;opacity:.18;filter:grayscale(1)}
+.dur-badge{position:absolute;right:5px;bottom:5px;z-index:2;background:rgba(0,0,0,.72);
+  color:#fff;font:600 10px/1 ui-monospace,Consolas,monospace;padding:3px 6px;border-radius:4px;pointer-events:none}
+.proxy-badge{position:absolute;left:5px;top:5px;z-index:2;font:700 9px/1 system-ui;padding:3px 6px;border-radius:4px;
+  letter-spacing:.4px;text-transform:uppercase}
+.proxy-badge.ready{background:var(--accent-bg);color:var(--accent-light)}
+.proxy-badge.pending{background:rgba(0,0,0,.6);color:var(--warning)}
+.proxy-badge.failed{background:rgba(255,138,122,.18);color:var(--danger)}
+.clip .meta{padding:9px 10px}
+.clip .cap{font-size:12px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
+.clip .sub{font-size:10.5px;color:var(--text-muted);margin-top:3px;font-variant-numeric:tabular-nums}
+.grid-empty{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:40px;color:var(--text-muted);animation:tabIn .35s cubic-bezier(.22,.9,.36,1)}
+.grid-empty svg{width:66px;height:66px;color:var(--accent-light);opacity:.85;margin-bottom:8px}
+.grid-empty h2{margin:6px 0;font-size:22px;color:var(--text)}
+.grid-empty p{margin:0 0 22px;font-size:13.5px;line-height:1.6}
+.grid-empty button{padding:11px 20px}
+.statline{font-size:12px;color:var(--text-muted)}
+.prog{height:8px;background:var(--bg-secondary);border-radius:var(--radius-full);overflow:hidden}
+.prog>div{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-hover));transition:var(--tn)}
+.prog.indet>div{width:38%;animation:indet 1.3s ease-in-out infinite}
+@keyframes indet{0%{margin-left:-38%}100%{margin-left:100%}}
+.bin-list{display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.binrow{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;cursor:pointer;
+  color:var(--text-secondary);transition:background .12s}
+.binrow:hover{background:var(--bg-hover);color:var(--text)}
+.binrow.on{background:var(--accent-bg);color:var(--accent-light);font-weight:600}
+.binrow .bn{margin-left:auto;color:var(--text-muted);font-variant-numeric:tabular-nums;font-size:11px}
+
+/* ============ shared preview stage (Edit + Color) ============ */
+.stage-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.pv-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;position:relative;overflow:hidden;background:#0c0c0e}
+/* the player BOX matches the project aspect instead of filling the stage and
+   letterboxing inside. Sized by fitPlayerBoxes() (ResizeObserver in main.js) —
+   container-query units re-evaluated per canvas paint and glitched playback. */
+canvas.pv-canvas{display:block;max-width:100%;max-height:100%;
+  object-fit:contain;border-radius:var(--radius-md);background:#000;
+  border:1px solid var(--border)}
+.pv-empty{color:var(--text-muted);text-align:center;max-width:420px;position:absolute;pointer-events:none}
+.pv-empty .big{font-size:44px;margin-bottom:10px;opacity:.5}
+.scopes{position:absolute;right:14px;top:14px;width:180px;display:none;flex-direction:column;gap:8px;pointer-events:none}
+.scopes.show{display:flex}
+.scope-box{background:rgba(10,10,12,.72);border:1px solid var(--border);border-radius:8px;padding:5px;pointer-events:auto}
+.scope-box .scope-lbl{cursor:pointer;user-select:none}
+.scope-box.collapsed canvas{display:none}
+.scope-box.collapsed .scope-lbl{opacity:.45}
+.scope-box canvas{display:block;width:100%;height:70px;border-radius:4px}
+#scopeVector{width:80px;height:80px;margin:0 auto}
+.scope-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin:1px 0 3px 3px}
+
+/* transport controls */
+.pv-ctrl{display:flex;flex-direction:column;align-items:center;gap:9px;padding:10px 16px 12px}
+.controls-row{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap}
+.transport{display:flex;align-items:center;gap:4px}
+.btn-tp{width:38px;height:38px;display:grid;place-items:center;border:0;padding:0;
+  background:var(--bg-elevated);color:var(--text);border-radius:var(--radius-full);
+  transition:transform var(--tf),background var(--tf)}
+.btn-tp svg{width:14px;height:14px;fill:currentColor}
+.btn-tp svg[fill="none"]{fill:none;width:16px;height:16px}
+.btn-tp:hover{background:var(--bg-hover);transform:scale(1.06)}
+.btn-tp:active{transform:scale(.94)}
+.btn-tp.play{width:48px;height:48px}
+.btn-tp.play svg{width:18px;height:18px}
+.btn-tp.play.playing{background:var(--accent);color:var(--on-accent)}
+.timecode{font-family:ui-monospace,'JetBrains Mono',Consolas,monospace;font-size:12.5px;color:var(--text-secondary);
+  background:var(--bg-elevated);border-radius:var(--radius-full);padding:9px 18px;min-width:150px;text-align:center;
+  white-space:nowrap}
+
+/* edit-tab media pool (grid + list, draggable) */
+.pool-toggle{display:flex;gap:2px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:7px;padding:2px}
+.pool-toggle button{padding:2px 8px;background:transparent;color:var(--text-muted);border-radius:5px;font-size:13px}
+.pool-toggle button.on{background:var(--accent);color:var(--on-accent)}
+.pool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--pw,110px),1fr));gap:8px;align-content:start}
+.pool-grid.list{display:flex;flex-direction:column;gap:5px}
+/* pan-y: vertical touch-drag scrolls the pool; horizontal starts a clip drag
+   (direction decided in JS on the first move) */
+.pool-thumb{border-radius:8px;overflow:hidden;background:var(--bg-elevated);cursor:grab;border:1px solid var(--border);transition:var(--tf);touch-action:pan-y}
+.drag-ghost{position:fixed;z-index:600;pointer-events:none;transform:translate(-50%,-150%);background:var(--accent);color:var(--on-accent);
+  padding:6px 12px;border-radius:var(--radius-full);font:600 12px system-ui;box-shadow:0 8px 24px rgba(0,0,0,.55);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.pool-thumb:hover{border-color:var(--accent);transform:translateY(-1px)}
+.pool-thumb:active{cursor:grabbing}
+.pool-thumb.dragging{opacity:.4}
+.pool-thumb .pt-img{aspect-ratio:16/9;background:#0d0d10 center/cover no-repeat;position:relative}
+.pool-thumb .pt-dur{position:absolute;right:3px;bottom:3px;background:rgba(0,0,0,.7);color:#fff;font:600 9px ui-monospace,monospace;padding:1px 4px;border-radius:3px}
+.pool-thumb .pt-proxy{position:absolute;left:4px;top:4px;width:7px;height:7px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 4px var(--accent-glow)}
+.pool-thumb .pt-meta{padding:4px 7px 5px;min-width:0}
+.pool-thumb .pt-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
+.pool-thumb .pt-sub{font-size:9.5px;margin-top:1px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums}
+.pool-grid.list .pool-thumb{display:flex;align-items:center;gap:8px}
+.pool-grid.list .pool-thumb .pt-img{width:64px;aspect-ratio:auto;height:36px;flex:none}
+.pool-grid.list .pool-thumb .pt-meta{flex:1;min-width:0;padding:0 6px 0 0}
+
+/* clip inspector */
+#clipInsBody .slider-row{margin:8px 0}
+.ins-grp{border-top:1px solid var(--border);margin-top:6px}
+.ins-grp>summary{list-style:none;cursor:pointer;padding:9px 0 5px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.7px;color:var(--text-muted);font-weight:700;display:flex;align-items:center;gap:6px}
+.ins-grp>summary::-webkit-details-marker{display:none}
+.ins-grp>summary::before{content:"▾";font-size:9px;color:var(--text-muted)}
+.ins-grp:not([open])>summary::before{content:"▸"}
+.ins-grp[open]>summary{color:var(--accent)}
+.ins-title{font-weight:600;font-size:12.5px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins-actions{display:flex;gap:6px;margin-top:10px}
+.ins-actions button{flex:1;padding:6px}
+
+/* ============ timeline ============ */
+.timeline{border-top:1px solid var(--border);background:rgba(12,12,15,.72);padding:10px 16px 14px}
+.tl-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:7px;gap:12px}
+.tl-head .now{font-variant-numeric:tabular-nums;color:var(--text-secondary);font-size:12px}
+.tl-head .tl-right{display:flex;align-items:center;gap:12px;justify-self:end}
+.tl-toolbar{display:flex;align-items:center;gap:1px;background:var(--bg-secondary);
+  border:1px solid var(--border);border-radius:8px;padding:2px;justify-self:center}
+.tl-tool{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;padding:0;
+  background:transparent;color:var(--text-muted);border-radius:5px;cursor:pointer;transition:var(--tf)}
+.tl-tool:hover{background:var(--bg-hover);color:var(--text)}
+.tl-tool.on{color:var(--accent);background:var(--accent-bg)}
+.tl-tool svg{width:14px;height:14px;flex:none}
+.tl-tsep{width:1px;height:15px;background:var(--border);margin:0 3px}
+.tl-scroll{position:relative;background:#101012;border-radius:var(--radius-lg);overflow:auto}
+/* with many tracks the lanes scroll vertically under the sticky ruler instead
+   of growing and squeezing the viewer */
+:root[data-layout="wide"] .tl-scroll{max-height:44vh}
+:root[data-layout="narrow"][data-orient="portrait"] .tl-scroll{max-height:34vh}
+/* no scrollbar on the timeline: the touch height-zoom strip owns the right
+   edge; panning covers scrolling (fingers on touch, wheel on desktop) */
+:root[data-touch] .tl-scroll{scrollbar-width:none}
+:root[data-touch] .tl-scroll::-webkit-scrollbar{display:none}
+.tl-scroll::-webkit-scrollbar:vertical{display:none}
+/* wrapper keeps the touch vertical-zoom strip glued to the scroll area */
+.tl-scrollwrap{position:relative;display:flex;flex-direction:column;min-height:0}
+.tl-scrollwrap .tl-scroll{flex:1;min-height:0}
+.tl-vzoom{display:none}
+:root[data-touch] .tl-vzoom{display:block;position:absolute;right:2px;top:30px;bottom:6px;width:26px;z-index:12;touch-action:none}
+:root[data-touch] .tl-vzoom::before{content:"";position:absolute;left:50%;top:8px;bottom:8px;width:4px;margin-left:-2px;
+  border-radius:2px;background:rgba(255,255,255,.10)}
+:root[data-touch] .tl-vzoom i{position:absolute;left:50%;width:20px;height:30px;margin-left:-10px;border-radius:10px;
+  background:var(--bg-elevated);border:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.45)}
+:root[data-touch] .tl-vzoom i::after{content:"";position:absolute;inset:11px 5px;border-top:2px solid var(--text-muted);
+  border-bottom:2px solid var(--text-muted)}
+/* touch: the timeline pans via the centered-playhead scrub (JS-driven) — native
+   touch scrolling would fight it. Mouse wheel / stylus unaffected. */
+:root[data-touch] .tl-scroll{touch-action:none}
+.tl-inner{position:relative;min-width:100%}
+.tl-ruler{position:sticky;top:0;z-index:9;height:26px;background:#0b0b0d;border-bottom:1px solid rgba(255,255,255,.05);
+  cursor:ew-resize;user-select:none;transition:background .12s}
+.tl-ruler:hover{background:#14141a;box-shadow:inset 0 -2px 0 var(--accent-glow)}
+.tl-lane{cursor:ew-resize}
+.tl-lane .tl-clip{cursor:grab}
+.tl-lane .tl-clip:active{cursor:grabbing}
+.tl-ruler .tick{position:absolute;bottom:0;width:1px;height:6px;background:rgba(255,255,255,.22)}
+.tl-ruler .tick.major{height:10px;background:rgba(255,255,255,.35)}
+.tl-ruler .tlabel{position:absolute;top:2px;transform:translateX(4px);
+  font:500 9.5px ui-monospace,Consolas,monospace;color:var(--text-muted);white-space:nowrap}
+.tl-lane{position:relative;display:flex;align-items:stretch;padding:4px 0;background:#131316;border-top:1px solid rgba(255,255,255,.055)}
+.tl-lane.audio{background:#101314}
+.tl-lane.drop{background:var(--accent-bg)}
+.tl-lanelabel{position:sticky;left:6px;z-index:6;align-self:center;width:0;overflow:visible;pointer-events:none}
+.tl-lanelabel i{display:inline-block;font:700 9px ui-monospace,Consolas,monospace;font-style:normal;
+  color:rgba(255,255,255,.5);background:rgba(0,0,0,.5);border:1px solid var(--border);
+  border-radius:5px;padding:2px 5px;backdrop-filter:blur(2px)}
+/* dark band separating the video group from the audio group */
+.tl-groupdiv{height:8px;background:#0a0a0c;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)}
+/* sticky +/− track rows above the video group / below the audio group */
+.tl-addrow{display:flex;padding:3px 0 2px;background:#0e0e10}
+.tl-addwrap{position:sticky;left:8px;display:inline-flex;align-items:center;gap:4px;z-index:6}
+.tl-add{width:19px;height:19px;padding:0;border-radius:6px;background:var(--bg-elevated);
+  color:var(--text-muted);font:700 13px/1 ui-monospace,Consolas,monospace}
+.tl-add:hover{background:var(--bg-hover);color:var(--accent)}
+.tl-add:disabled{opacity:.28}
+.tl-addlbl{font:600 9px system-ui;letter-spacing:.8px;text-transform:uppercase;color:var(--text-muted);opacity:.7;margin-left:3px}
+.tl-track{position:relative;height:var(--tlVH,50px);flex:1;cursor:pointer}
+.tl-track.audio-track{height:var(--tlAH,34px)}
+.tl-clip.audio{background:linear-gradient(#2b4a40,#223a33);align-items:center}
+.tl-clip.title{background:linear-gradient(#4b3a68,#3a2c52)}
+.tl-clip.title .tl-name{background:rgba(0,0,0,.4)}
+.ti-text{width:100%;resize:vertical;background:var(--bg-elevated);border:1px solid var(--border);border-radius:7px;
+  color:var(--text);padding:8px 10px;font:inherit;font-size:13px;margin-bottom:8px}
+.ti-lbl{display:flex;align-items:center;gap:6px;flex:1;color:var(--text-secondary);font-size:12px}
+.ti-lbl input[type=color]{width:34px;height:26px;padding:0;border:none;background:none;border-radius:6px}
+.ti-lbl select{flex:1}
+.tl-clip.audio .tl-name{background:rgba(0,0,0,.35)}
+.tl-clip.speed::after{content:attr(data-speed);position:absolute;right:4px;bottom:3px;font:700 8px ui-monospace,monospace;
+  background:var(--sel);color:#1c1c1e;padding:1px 4px;border-radius:3px}
+.tl-clip.moving{opacity:.8;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.tl-dropline{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:8;pointer-events:none;box-shadow:0 0 6px var(--accent)}
+.tl-clip{position:absolute;top:0;bottom:0;overflow:hidden;border-radius:7px;
+  border-right:2px solid #131315;display:flex;align-items:center;padding-left:8px;
+  font-size:10px;color:rgba(255,255,255,.92);
+  /* thumb tiles at full height along the clip instead of one stretched poster */
+  background-size:auto 100%;background-repeat:repeat-x;background-position:left center;
+  background-color:#333a44;
+  transition:filter var(--tf);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.tl-clip .tl-name{background:rgba(0,0,0,.5);padding:2px 6px;border-radius:4px;pointer-events:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 16px);position:relative;z-index:2}
+.tl-wave{position:absolute;left:0;top:50%;transform:translateY(-50%);pointer-events:none;z-index:1;opacity:.9}
+.tl-clip:hover{filter:brightness(1.15)}
+.tl-clip.cur{box-shadow:inset 0 0 0 2px var(--sel)}
+.tl-clip.graded::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+.tl-edge{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;z-index:4;opacity:0;
+  background:var(--sel);display:flex;align-items:center;justify-content:center;
+  color:#1c1c1e;font-size:9px;font-weight:800;transition:opacity var(--tf)}
+.tl-edge.l{left:0;border-radius:3px 0 0 3px}
+.tl-edge.r{right:0;border-radius:0 3px 3px 0}
+.tl-clip:hover .tl-edge,.tl-clip.cur .tl-edge{opacity:.95}
+/* fade regions + draggable fade handles at the top corners of a clip */
+.tl-clip .fade-tri{position:absolute;top:0;bottom:0;z-index:2;pointer-events:none}
+.tl-clip .fade-tri.in{left:0;background:linear-gradient(to right,rgba(0,0,0,.68),transparent)}
+.tl-clip .fade-tri.out{right:0;background:linear-gradient(to left,rgba(0,0,0,.68),transparent)}
+.tl-clip .fade-h{position:absolute;top:-2px;width:16px;height:16px;transform:translateX(-50%);z-index:6;
+  cursor:ew-resize;touch-action:none}
+.tl-clip .fade-h::after{content:"";position:absolute;left:50%;top:3px;width:9px;height:9px;
+  transform:translateX(-50%) rotate(45deg);background:#fff;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.55);
+  opacity:0;transition:opacity var(--tf)}
+.tl-clip:hover .fade-h::after,.tl-clip.cur .fade-h::after{opacity:.9}
+.tl-clip .fade-h:hover::after{opacity:1;background:var(--accent)}
+:root[data-touch] .tl-clip .fade-h::after{opacity:.85}
+/* cross-dissolve marker (X bowtie) on the incoming clip's left edge */
+.tl-clip .kf-mark{position:absolute;bottom:2px;width:7px;height:7px;transform:translateX(-50%) rotate(45deg);
+  background:var(--accent);z-index:4;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+.tl-clip .trans-mark{position:absolute;left:0;top:0;bottom:0;z-index:3;pointer-events:none;
+  background:linear-gradient(135deg,transparent calc(50% - 1px),rgba(255,255,255,.4) 50%,transparent calc(50% + 1px)),
+    linear-gradient(45deg,transparent calc(50% - 1px),rgba(255,255,255,.4) 50%,transparent calc(50% + 1px));
+  border-left:1px solid rgba(255,255,255,.3)}
+.tl-playhead{position:absolute;top:0;bottom:0;width:1.5px;background:var(--sel);z-index:10;cursor:ew-resize}
+.tl-playhead::before{content:"";position:absolute;left:-8px;right:-8px;top:0;bottom:0}  /* fat grab zone */
+.tl-marker{position:absolute;top:0;width:0;height:0;z-index:6;cursor:pointer;
+  border-left:6px solid transparent;border-right:6px solid transparent;border-top:9px solid var(--warning);
+  transform:translateX(-6px)}
+.tl-marker:hover{border-top-color:var(--accent)}
+.tl-playhead i{position:absolute;top:1px;left:-5.25px;width:12px;height:14px;background:var(--sel);
+  border-radius:3px 3px 6px 6px;clip-path:polygon(0 0,100% 0,100% 60%,50% 100%,0 60%)}
+/* in/out section (loop range) */
+.tl-io{position:absolute;top:0;bottom:0;z-index:6;pointer-events:none;background:rgba(95,213,152,.08);
+  border-left:1.5px solid var(--accent);border-right:1.5px solid var(--accent)}
+.tl-ioflag{position:absolute;top:0;width:0;height:0;z-index:7;border-top:10px solid var(--accent);cursor:ew-resize;touch-action:none}
+.tl-ioflag.in{border-right:7px solid transparent}
+.tl-ioflag.out{border-left:7px solid transparent;transform:translateX(-7px)}
+/* generous invisible hit area so the flags are grabbable (bigger on touch) */
+.tl-ioflag::after{content:"";position:absolute;left:-12px;top:-10px;width:26px;height:28px}
+:root[data-touch] .tl-ioflag::after{left:-17px;width:36px;height:36px}
+.btn-tp.on{background:var(--accent);color:var(--on-accent)}
+
+/* ============ COLOR tab ============ */
+.color-tools{display:flex;flex-direction:column;gap:14px}
+.wheels{display:grid;grid-template-columns:1fr;gap:16px}
+.wheel{text-align:center}
+.wheel .wlabel{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:6px}
+/* full-disc hue wheel: saturation grows outward from a dark neutral centre */
+.wheel-pad{position:relative;width:100%;max-width:210px;margin:0 auto;aspect-ratio:1;border-radius:50%;cursor:crosshair;
+  background:
+    radial-gradient(circle,#1d1d20 0 12%,rgba(29,29,32,.75) 38%,rgba(29,29,32,.28) 66%,rgba(29,29,32,0) 92%),
+    conic-gradient(from 0deg,#ff5b5b,#ffdf6b,#8ef07a,#5fd598,#8ed4dd,#8aa2ff,#c48aff,#ff8ad4,#ff5b5b);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07),inset 0 0 26px rgba(0,0,0,.55)}
+/* subtle centre crosshair */
+.wheel-pad::before,.wheel-pad::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(255,255,255,.16);pointer-events:none}
+.wheel-pad::before{width:1px;height:14px}
+.wheel-pad::after{width:14px;height:1px}
+.wheel-pad .knob{position:absolute;width:12px;height:12px;border-radius:50%;background:#fff;
+  border:2px solid #000;transform:translate(-50%,-50%);left:50%;top:50%;box-shadow:0 1px 4px rgba(0,0,0,.6);z-index:1}
+.wheel .master{display:block;width:100%;max-width:210px;margin:8px auto 0}
+.slider-row{display:flex;align-items:center;gap:10px;margin:9px 0}
+.slider-row label{margin:0;flex:none;width:78px;color:var(--text-secondary);font-size:12px}
+.slider-row input[type=range]{flex:1}
+.slider-row .val{width:46px;text-align:right;font-variant-numeric:tabular-nums;font-size:11.5px;color:var(--text-muted);
+  font-family:ui-monospace,Consolas,monospace}
+/* nicer native fill on desktop */
+input[type=range]{accent-color:var(--accent)}
+/* per-slider reset-to-default button */
+.sld-reset{flex:none;width:24px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:7px;background:transparent;color:var(--text-muted);opacity:0;cursor:pointer;
+  transition:opacity .12s,color .12s,background .12s}
+.sld-reset svg{width:14px;height:14px}
+.slider-row:hover .sld-reset{opacity:.55}
+.sld-reset:hover{opacity:1;color:var(--accent);background:var(--bg-hover)}
+.sld-reset:active{transform:rotate(-40deg)}
+/* standalone reset icon (wheels / curves / HSL card headers) — same glyph as
+   the per-slider reset, but always visible */
+.reset-btn{flex:none;width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+  border-radius:7px;background:transparent;color:var(--text-muted);cursor:pointer;transition:color .12s,background .12s}
+.reset-btn:hover{color:var(--accent);background:var(--bg-hover)}
+.reset-btn:active{transform:rotate(-40deg)}
+.reset-btn svg{width:15px;height:15px}
+:root[data-touch] .reset-btn{width:36px;height:36px;border-radius:10px}
+:root[data-touch] .reset-btn svg{width:19px;height:19px}
+.wheel .wrow{display:flex;align-items:center;justify-content:center;gap:2px;margin-bottom:4px}
+.wheel .wrow .wlabel{margin-bottom:0}
+
+/* ── touch devices: MIUI-style fat filled-pill sliders, relative drag ── */
+/* pan-y lets a vertical drag scroll the drawer while a horizontal drag on the
+   bar adjusts the slider (direction decided in JS on the first move) */
+:root[data-touch] .slider-row{min-height:50px;gap:12px;touch-action:pan-y}
+/* compact toolbar sliders (timeline zoom + master volume): desktop matches the
+   regular thin sliders; touch gets the tap-anywhere layer at a toolbar-friendly
+   height instead of the full 50px rows */
+.tl-sld{margin:0;gap:6px}
+.tl-sld label{width:auto;display:flex;align-items:center;color:var(--text-muted);font-size:11px}
+.tl-sld input[type=range]{flex:none;width:90px}
+#tlMasterVol{width:80px}
+:root[data-touch] .tl-sld{min-height:34px;gap:6px}
+:root[data-touch] .tl-sld input[type=range]{height:30px;width:104px}
+:root[data-touch] .tl-sld input[type=range]::-webkit-slider-runnable-track{height:26px;border-radius:13px}
+:root[data-touch] .tl-sld input[type=range]::-moz-range-track{height:26px;border-radius:13px}
+:root[data-touch] .tl-sld input[type=range]::-moz-range-progress{height:26px;border-radius:13px}
+:root[data-touch] .slider-row label{width:70px;font-size:12.5px}
+/* icon-only labels (master volume) must not inherit the 70px text-label width —
+   it opened a weird gap between the speaker icon and its slider on touch */
+:root[data-touch] .tl-sld label{width:auto}
+/* ── narrow portrait: the volume slider collapses behind the speaker icon and
+   pops up as a floating pill above it ── */
+.vol-pop{display:contents}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow{position:relative}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow label{cursor:pointer;width:30px;height:30px;justify-content:center;border-radius:8px}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow.open label{background:var(--accent-bg);color:var(--accent-light)}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow .vol-pop{display:none}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow.open .vol-pop{display:flex;position:absolute;
+  bottom:calc(100% + 12px);left:-6px;width:min(190px,calc(100vw - 40px));padding:10px 14px;z-index:80;
+  background:var(--bg-solid);border:1px solid var(--border-medium);border-radius:999px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+:root[data-layout="narrow"][data-orient="portrait"] #tlVolRow.open .vol-pop input[type=range]{width:100%;flex:1}
+:root[data-touch] .sld-reset{opacity:.7;width:38px;height:38px;border-radius:11px}
+:root[data-touch] .sld-reset svg{width:20px;height:20px}
+:root[data-touch] input[type=range]{-webkit-appearance:none;appearance:none;height:38px;background:transparent;
+  touch-action:none;cursor:grab}
+:root[data-touch] input[type=range]:active{cursor:grabbing}
+/* the input itself never handles pointers → the native thumb can't snap to the
+   touch point; the row drives a relative drag instead */
+:root[data-touch] .slider-row input[type=range]{pointer-events:none}
+/* the track IS the control: a tall rounded pill filled to the value (--pct) */
+:root[data-touch] input[type=range]::-webkit-slider-runnable-track{height:36px;border-radius:18px;
+  background:linear-gradient(90deg,var(--accent) 0 var(--pct,0%),var(--bg-hover) var(--pct,0%) 100%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+/* no knob — the fill edge alone shows the value (clean MIUI look) */
+:root[data-touch] input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:0;height:0;background:transparent;border:none;box-shadow:none}
+:root[data-touch] input[type=range]::-moz-range-track{height:36px;border-radius:18px;background:var(--bg-hover);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+:root[data-touch] input[type=range]::-moz-range-progress{height:36px;border-radius:18px;background:var(--accent)}
+:root[data-touch] input[type=range]::-moz-range-thumb{width:0;height:0;border:none;background:transparent}
+:root[data-touch] .slider-row .val{width:52px;font-size:12.5px}
+/* colour wheels: pad grabs both axes; master allows vertical scroll-through */
+:root[data-touch] .wheel-pad{touch-action:none}
+:root[data-touch] .master{touch-action:pan-y}
+/* wheels: single column everywhere; the drawer scrolls past them */
+:root[data-layout="narrow"] .wheels{gap:18px}
+:root[data-layout="narrow"] .color-tools{padding-bottom:8px}
+:root[data-layout="narrow"][data-orient="portrait"] .side-r .wheels{max-width:520px;margin:0 auto}
+.color-sub{display:flex;flex-wrap:wrap;gap:3px;background:var(--bg-secondary);border:1px solid var(--border);
+  border-radius:8px;padding:3px;margin-bottom:4px}
+.color-sub button{position:relative;flex:1 1 auto;min-width:52px;padding:6px 8px;background:transparent;color:var(--text-muted);border-radius:6px;font-size:12px;font-weight:600}
+.color-sub button.on{background:var(--accent-bg);color:var(--accent-light)}
+/* activity dot: this section holds non-neutral grade values */
+.color-sub button.hasval::after{content:"";position:absolute;top:4px;right:5px;width:4px;height:4px;
+  border-radius:50%;background:var(--accent);box-shadow:0 0 3px var(--accent-glow)}
+/* small accent tick in front of section headers */
+.color-tools .card h3::before{content:"";display:inline-block;width:3px;height:9px;border-radius:2px;
+  background:var(--accent);margin-right:7px;vertical-align:-1px;opacity:.75}
+.slider-row .val{font-variant-numeric:tabular-nums}
+.hsl-sw{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+.slider-row label .hsl-sw{flex:none}
+.lut-list{display:flex;flex-direction:column;gap:4px;max-height:230px;overflow-y:auto}
+.lut-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;cursor:pointer;
+  background:var(--bg-elevated);font-size:12px;transition:background .12s}
+.lut-item:hover{background:var(--bg-hover)}
+.lut-item.on{background:var(--accent-bg);color:var(--accent-light);font-weight:600}
+.lut-item.sub{margin-left:12px}
+.lut-item .lsw{width:26px;height:16px;border-radius:3px;flex:none;background:linear-gradient(90deg,#333,#888)}
+.lut-cat{display:flex;align-items:center;gap:6px;padding:6px 4px;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);cursor:pointer;user-select:none}
+.lut-cat:hover{color:var(--text)}
+.lut-cat .caret{width:11px;font-size:9px}
+.lut-cat .bn{margin-left:auto;font-weight:500;letter-spacing:0}
+.lut-list{max-height:320px}
+/* touch-action:none — otherwise a vertical finger-drag scrolls the drawer
+   instead of moving the curve point */
+.curve-canvas{width:100%;aspect-ratio:1;background:#141416;border:1px solid var(--border);border-radius:8px;cursor:crosshair;display:block;touch-action:none}
+
+/* mini clip strip at the bottom of the Color tab */
+.cstrip-item{position:relative;width:92px;height:52px;border-radius:6px;flex:none;cursor:pointer;overflow:hidden;
+  background:#0d0d10 center/cover;box-shadow:inset 0 0 0 1px var(--border);
+  opacity:.72;transition:opacity .15s,box-shadow .15s}
+.cstrip-item:hover{opacity:1}
+.cstrip-item.on{opacity:1;box-shadow:0 0 0 2px var(--accent)}
+.cstrip-item.is-title{background-image:linear-gradient(135deg,#241f38,#191521)}
+.cs-sep{width:1px;height:36px;flex:none;background:var(--border-medium);border-radius:1px}
+/* bottom scrim: clip number · name · duration */
+.cstrip-item .cs-meta{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:baseline;gap:4px;
+  padding:12px 6px 3px;background:linear-gradient(transparent,rgba(0,0,0,.82));pointer-events:none}
+.cstrip-item .csn{font-size:8.5px;font-weight:700;color:#fff;opacity:.75;font-variant-numeric:tabular-nums}
+.cstrip-item .cs-name{flex:1;min-width:0;font-size:9px;font-weight:600;color:#fff;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.cstrip-item .cs-dur{font-size:8px;color:rgba(255,255,255,.7);font-variant-numeric:tabular-nums}
+/* graded indicator: colour wheel when graded, faint hollow ring when neutral */
+.cstrip-item .csgi{position:absolute;right:4px;top:4px;width:8px;height:8px;border-radius:50%;pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.4);opacity:.45}
+.cstrip-item .csgi.graded{opacity:1;box-shadow:0 0 4px rgba(0,0,0,.6);
+  background:conic-gradient(#ff7a6b,#ffd93d,#6be08f,#5bc0ff,#c86bff,#ff7a6b)}
+.cstrip-item .csp{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--accent);pointer-events:none}
+
+/* compact "what am I grading" timeline: proportional clip blocks, no thumbs */
+#cThumbsWrap:not(.hidden)+.cmini-wrap{margin-top:8px}
+.cmini-wrap{background:#101012;border:1px solid var(--border);border-radius:8px;padding:3px}
+.cmini{position:relative;display:flex;height:20px;cursor:pointer;touch-action:none}
+.cmini-clip{position:relative;height:100%;min-width:6px;flex:none;border-radius:4px;overflow:hidden;
+  display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:700;color:var(--text-muted);
+  background:var(--bg-hover);border:0 solid transparent;border-inline-width:1px;background-clip:padding-box;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.cmini-clip.graded{background:var(--accent-bg);color:var(--accent-light);box-shadow:inset 0 0 0 1px var(--accent-glow)}
+.cmini-clip.on{box-shadow:inset 0 0 0 1.5px var(--accent);color:var(--text)}
+.cmini-clip.is-title{background:#251f3a;color:#b3a6e8}
+.cmini-gap{flex:none;height:100%}
+.cmini-ph{position:absolute;top:-2px;bottom:-2px;left:0;width:2px;margin-left:-1px;border-radius:1px;
+  background:var(--accent);box-shadow:0 0 6px var(--accent-glow);pointer-events:none}
+
+/* ============ EXPORT tab ============ */
+#export{padding:26px;overflow:auto;flex-direction:column}
+.ex-wrap{max-width:900px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:18px}
+.ex-hero{display:flex;align-items:center;gap:16px;padding:18px 22px}
+.ex-hero .big{font-size:26px;font-weight:700;letter-spacing:.3px}
+.ex-hero .sub{color:var(--text-muted);font-size:13px}
+.ex-ico{width:52px;height:52px;border-radius:var(--radius-md);display:grid;place-items:center;
+  background:var(--accent-bg);color:var(--accent-light);flex:none}
+.ex-ico svg{width:26px;height:26px;fill:currentColor}
+.ex-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+.ex-form>div{display:flex;flex-direction:column}
+.kv{font-family:ui-monospace,Consolas,monospace;font-size:11px;background:var(--bg-secondary);
+  border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;word-break:break-all;color:var(--text-secondary)}
+
+/* overlay */
+.overlay{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;
+  background:rgba(18,16,22,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+.overlay .box{text-align:center;padding:34px 42px;min-width:420px;max-width:520px;
+  background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius-lg);
+  box-shadow:0 30px 80px rgba(0,0,0,.5)}
+
+/* tap-to-add clip picker (from the timeline "+" button) */
+.clip-picker{position:fixed;z-index:300;min-width:230px;max-width:min(340px,92vw);max-height:60vh;overflow:auto;
+  background:var(--bg-solid);border:1px solid var(--border-medium);border-radius:12px;padding:6px;
+  box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.clip-picker .cp-head{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);padding:6px 8px}
+.cp-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border-radius:8px;background:transparent;
+  color:var(--text);cursor:pointer;text-align:left}
+.cp-item:hover{background:var(--bg-hover)}
+.cp-thumb{width:44px;height:26px;flex:none;border-radius:4px;background:#0d0d10 center/cover no-repeat;
+  box-shadow:inset 0 0 0 1px var(--border)}
+.cp-name{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cp-dur{font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+/* Edit-sidebar Media/Toolbox tabs */
+.side-tabs{display:flex;gap:3px;background:var(--bg-secondary);border:1px solid var(--border);
+  border-radius:8px;padding:3px;margin-bottom:10px}
+.side-tabs button{flex:1;padding:7px 8px;background:transparent;color:var(--text-muted);border-radius:6px;
+  font-size:12.5px;font-weight:600}
+.side-tabs button.on{background:var(--bg-hover);color:var(--accent)}
+.fx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+.fx-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:12px 6px;
+  background:var(--bg-elevated);border:1px solid var(--border);border-radius:9px;color:var(--text-secondary);
+  font-size:12px;cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+.fx-btn:hover{border-color:var(--accent);color:var(--text);background:var(--bg-hover)}
+.fx-ic{font-size:18px;line-height:1;color:var(--accent)}
+
+/* header pill button */
+.pill-btn{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font:inherit;font-size:12px;
+  color:var(--text-secondary)}
+.pill-btn:hover{color:var(--accent);border-color:var(--accent-bg)}
+.pill-btn svg{opacity:.85}
+
+/* projects browser */
+.proj-box{text-align:left;min-width:min(720px,92vw);max-width:820px;width:92vw;padding:24px 26px}
+.proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;
+  max-height:62vh;overflow-y:auto;padding:2px}
+.proj-empty{padding:40px;text-align:center}
+.proj-card{display:flex;flex-direction:column;background:var(--bg-elevated);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;transition:border-color .12s,transform .12s}
+.proj-card:hover{border-color:var(--text-muted);transform:translateY(-2px)}
+.proj-card.active{border-color:var(--accent)}
+.proj-thumb{position:relative;aspect-ratio:16/9;background:#0d0d10 center/cover no-repeat;
+  display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--text-muted)}
+.proj-badge{position:absolute;top:6px;right:6px;background:var(--accent);color:#0d2318;font-size:10px;
+  font-weight:700;padding:2px 7px;border-radius:var(--radius-full);text-transform:uppercase}
+.proj-body{padding:9px 11px 6px}
+.proj-name{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
+.proj-actions{display:flex;gap:3px;padding:6px 8px 9px}
+.proj-actions button{flex:none;padding:5px 9px;background:var(--bg-hover);color:var(--text-secondary);
+  border-radius:6px;font-size:12px;font-weight:600}
+.proj-actions button[data-a="open"]{flex:1;color:var(--accent)}
+.proj-actions button:hover{background:var(--bg-secondary);color:var(--text)}
+/* ffmpeg.wasm status */
+#ffPill.on{color:var(--accent);border-color:var(--accent-bg)}
+#ffPill.busy{color:var(--warning);border-color:rgba(255,223,107,.25)}
+.ff-status{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(8px);z-index:520;
+  display:none;align-items:center;gap:10px;background:var(--bg-elevated);border:1px solid var(--accent);
+  border-radius:var(--radius-full);padding:11px 20px;font-size:13px;color:var(--text);
+  box-shadow:0 12px 40px rgba(0,0,0,.55);min-width:280px;justify-content:center}
+.ff-status.show{display:flex;animation:tabIn .25s ease}
+.ff-status.err{border-color:var(--danger);color:var(--text);cursor:pointer;max-width:min(680px,92vw);line-height:1.4;text-align:left;justify-content:flex-start}
+.ff-status.err .ff-spin{display:none}
+.ff-status.err b{color:var(--danger)}
+#ffPill.busy{color:var(--warning)}
+.ff-spin{width:15px;height:15px;flex:none;border-radius:50%;border:2px solid var(--accent-bg);
+  border-top-color:var(--accent);animation:binspin .8s linear infinite}
+@keyframes binspin{to{transform:rotate(360deg)}}
+/* ============ responsive: bottom-sheet sidebars on narrow screens ============ */
+#sheetFab{display:none;position:fixed;right:16px;bottom:16px;z-index:70;width:52px;height:52px;border-radius:50%;
+  background:var(--accent);color:var(--on-accent);align-items:center;justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.55)}
+/* transparent tap-catcher: closes the drawer but keeps the live video visible */
+#sheetScrim{position:fixed;inset:0;background:transparent;z-index:58;visibility:hidden}
+#sheetScrim.show{visibility:visible}
+/* drawer opens from a small header icon on narrow; the big FAB is retired */
+#drawerBtn{display:none}
+:root[data-layout="narrow"] #drawerBtn{display:inline-flex}
+/* on Edit the Media/Toolbox drawer opens from the "+" by zoom/volume, so the
+   header button is redundant there */
+:root[data-layout="narrow"][data-tab="edit"] #drawerBtn{display:none}
+/* on Media the panel drawer opens from the button on the Size row, so the
+   header button is redundant there too */
+:root[data-layout="narrow"][data-tab="media"] #drawerBtn{display:none}
+/* toolbar panel triggers (Media Size row) — only on narrow */
+.panels-btn{display:none}
+:root[data-layout="narrow"] .panels-btn{display:inline-flex}
+/* Color tools pane keeps its own wider desktop width */
+.color-side{width:clamp(320px,30vw,420px)}
+/* the "+" (add clips / tools) next to zoom & volume */
+.tl-addbtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;flex:none;
+  border:0;border-radius:8px;background:var(--accent);color:var(--on-accent);cursor:pointer;transition:filter .12s}
+.tl-addbtn svg{display:block;width:18px;height:18px;flex:none}
+.tl-addbtn:hover{filter:brightness(1.12)}
+/* brief highlight of the persistent pool when + is pressed on wide layouts */
+@keyframes sideFlash{0%{box-shadow:0 0 0 2px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+.side.flash{animation:sideFlash .6s ease-out}
+:root[data-layout="narrow"] #projBtn{padding:6px 8px}
+:root[data-layout="narrow"] #projBtn svg{margin:0}
+:root[data-layout="narrow"] header{gap:10px;padding:0 12px}
+:root[data-layout="narrow"] .main-tab{padding:5px 12px}
+:root[data-layout="narrow"] #ffPill,:root[data-layout="narrow"] #codecPill,:root[data-layout="narrow"] #buildTag,:root[data-layout="narrow"] #gpuPill{display:none}
+/* narrow: tool sidebars become drawers that cover the timeline, never the video */
+:root[data-layout="narrow"] .side,
+:root[data-layout="narrow"] .side-r{
+  position:fixed;z-index:60;width:auto;max-width:none;background:var(--bg-solid);overflow:auto;
+  border:1px solid var(--border-medium);box-shadow:0 -14px 44px rgba(0,0,0,.6);
+  transition:transform .32s cubic-bezier(.4,0,.2,1)}
+/* PORTRAIT → bottom sheet over the timeline, capped so the viewer stays on top */
+:root[data-layout="narrow"][data-orient="portrait"] .side,
+:root[data-layout="narrow"][data-orient="portrait"] .side-r{
+  left:0;right:0;bottom:0;top:auto;max-height:56vh;border-bottom:0;border-radius:18px 18px 0 0;
+  padding:14px 16px 22px;transform:translateY(106%)}
+:root[data-layout="narrow"][data-orient="portrait"] .side.sheet-open,
+:root[data-layout="narrow"][data-orient="portrait"] .side-r.sheet-open{transform:none}
+:root[data-layout="narrow"][data-orient="portrait"] .side::before,
+:root[data-layout="narrow"][data-orient="portrait"] .side-r::before{content:"";display:block;width:38px;height:4px;
+  border-radius:2px;background:var(--border-medium);margin:0 auto 12px}
+/* LANDSCAPE → right drawer (like desktop), the video stays visible to the left */
+:root[data-layout="narrow"][data-orient="landscape"] .side,
+:root[data-layout="narrow"][data-orient="landscape"] .side-r{
+  top:0;bottom:0;right:0;left:auto;width:min(360px,52vw);border-top:0;border-right:0;
+  border-radius:16px 0 0 16px;padding:16px;transform:translateX(106%)}
+:root[data-layout="narrow"][data-orient="landscape"] .side.sheet-open,
+:root[data-layout="narrow"][data-orient="landscape"] .side-r.sheet-open{transform:none}
+:root[data-layout="narrow"] .media-main,
+:root[data-layout="narrow"] .stage-main{width:100%;flex:1;min-width:0;min-height:0}
+:root[data-layout="narrow"] #mediaInspector{width:auto}
+/* portrait: give the viewer room, keep the timeline compact but usable */
+:root[data-layout="narrow"][data-orient="portrait"] .pv-stage{min-height:38vh}
+:root[data-layout="narrow"] .timeline{padding:8px 10px 12px}
+:root[data-layout="narrow"] .grid{padding:12px}
+/* ── sheet push-up: the stage shrinks above the open drawer so the video (and
+   any grade change) stays visible while you tweak. --sheet-h is measured in
+   layout.js when the sheet opens. ── */
+:root[data-layout="narrow"][data-orient="portrait"] .stage-main{transition:padding-bottom .32s cubic-bezier(.4,0,.2,1)}
+:root[data-layout="narrow"][data-orient="portrait"].sheet-shown .tab-panel.active .stage-main{padding-bottom:min(56vh,var(--sheet-h,56vh))}
+/* EDIT portrait: clip settings OVERLAYS the timeline instead of squeezing the
+   player — the video keeps its size; grading (Color) keeps the push-up so the
+   picture stays visible above the tools */
+:root[data-layout="narrow"][data-orient="portrait"][data-tab="edit"].sheet-shown .tab-panel.active .stage-main{padding-bottom:0}
+:root[data-layout="narrow"][data-orient="portrait"].sheet-shown .tab-panel.active .pv-stage{min-height:0}
+:root[data-layout="narrow"][data-orient="landscape"] .stage-main{transition:padding-right .32s cubic-bezier(.4,0,.2,1)}
+:root[data-layout="narrow"][data-orient="landscape"].sheet-shown .tab-panel.active .stage-main{padding-right:min(360px,52vw)}
+/* ── scopes on phones: hidden behind a 📊 toggle; portrait lays them out as a
+   full-width strip instead of covering the picture ── */
+:root[data-layout="narrow"] .scopes{display:none}
+:root[data-layout="narrow"] .scopes.show{display:flex}
+:root[data-layout="narrow"][data-orient="portrait"] .scopes{left:10px;right:10px;top:10px;width:auto;flex-direction:row;flex-wrap:wrap;gap:6px}
+:root[data-layout="narrow"][data-orient="portrait"] .scope-box{flex:1 1 40%;min-width:120px}
+#scopeToggle{display:grid}   /* every layout — scopes are toggleable on desktop too */
+/* ── secondary player controls: inline on wide (display:contents keeps them in
+   the row), popup drawer behind the ⋯ button on narrow ── */
+.ctrl-more{display:contents}
+.cml{display:none}
+#cMoreBtn{display:none}
+:root[data-layout="narrow"] #cMoreBtn{display:grid}
+:root[data-layout="narrow"] .pv-ctrl{position:relative;padding:6px 10px 8px}
+:root[data-layout="narrow"] .controls-row{gap:8px}
+:root[data-layout="narrow"] .ctrl-more{display:none;position:absolute;bottom:calc(100% + 8px);right:10px;z-index:80;
+  flex-direction:column;align-items:stretch;gap:2px;min-width:210px;padding:6px;
+  max-height:calc(100vh - 140px);overflow-y:auto;overscroll-behavior:contain;
+  background:var(--bg-solid);border:1px solid var(--border-medium);border-radius:12px;
+  box-shadow:0 14px 40px rgba(0,0,0,.55)}
+:root[data-layout="narrow"] .ctrl-more.open{display:flex}
+:root[data-layout="narrow"] .ctrl-more .btn-tp{width:100%;height:42px;display:flex;align-items:center;
+  justify-content:flex-start;gap:11px;padding:0 11px;border-radius:8px}
+:root[data-layout="narrow"] .ctrl-more .btn-tp.on{background:var(--accent-bg);color:var(--accent-light)}
+:root[data-layout="narrow"] .ctrl-more .cml{display:inline;font-size:12.5px;font-weight:600}
+/* landscape phones: one compact row so the viewer keeps its height */
+:root[data-layout="narrow"][data-orient="landscape"] .pv-ctrl{padding:3px 8px 5px;gap:4px}
+:root[data-layout="narrow"][data-orient="landscape"] .controls-row{gap:6px;flex-wrap:nowrap;width:100%;
+  overflow-x:auto;scrollbar-width:none;justify-content:safe center}
+:root[data-layout="narrow"][data-orient="landscape"] .controls-row::-webkit-scrollbar{display:none}
+/* row space is halved while a sheet covers the right side — drop the timecode */
+:root[data-layout="narrow"][data-orient="landscape"].sheet-shown .tab-panel.active .timecode{display:none}
+:root[data-layout="narrow"][data-orient="landscape"] .controls-row .btn-tp{width:34px;height:34px}
+:root[data-layout="narrow"][data-orient="landscape"] .controls-row .btn-tp.play{width:40px;height:40px}
+:root[data-layout="narrow"][data-orient="landscape"] .timecode{font-size:10.5px}
+/* the popup keeps full-width rows in landscape, slightly tighter */
+:root[data-layout="narrow"][data-orient="landscape"] .ctrl-more .btn-tp{width:100%;height:37px}
+/* colour-tools sheet trigger lives in the player row on narrow; the generic
+   header panels button hides on the Color tab so there's one obvious entry */
+#cToolsBtn{display:none}
+:root[data-layout="narrow"][data-orient="portrait"] #cToolsBtn{display:grid}
+/* ── COLOR landscape phones: dock the colour tools on the right (no popup) ── */
+:root[data-layout="narrow"][data-orient="landscape"] #color.active{display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(300px,46vw)}
+:root[data-layout="narrow"][data-orient="landscape"] #color .stage-main{grid-column:1;min-width:0;min-height:0}
+:root[data-layout="narrow"][data-orient="landscape"] #color .side-r{grid-column:2;
+  position:static;transform:none;inset:auto;width:auto;max-height:none;border:0;border-left:1px solid var(--border);
+  border-radius:0;box-shadow:none;padding:12px;overflow:auto;z-index:auto}
+:root[data-layout="narrow"][data-orient="landscape"] #color .side-r::before{display:none}
+/* docked → the colour-tools sheet trigger and the header drawer button are redundant */
+:root[data-layout="narrow"][data-orient="landscape"] #cToolsBtn{display:none}
+:root[data-layout="narrow"][data-orient="landscape"][data-tab="color"] #drawerBtn{display:none}
+:root[data-layout="narrow"][data-tab="color"] #drawerBtn{display:none}
+/* ── project settings popover (timeline ⚙) ── */
+.tl-proj{position:relative;display:flex}
+.proj-pop{display:none;position:absolute;top:calc(100% + 10px);right:-6px;z-index:80;min-width:210px;
+  flex-direction:column;gap:8px;padding:12px;background:var(--bg-solid);
+  border:1px solid var(--border-medium);border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.55)}
+.tl-proj.open .proj-pop{display:flex}
+.tl-proj.open #tlProjBtn{background:var(--accent-bg);color:var(--accent-light)}
+.pp-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.pp-row label{font-size:12px;color:var(--text-secondary)}
+.pp-row select{width:104px}
+
+/* ── FX accordion: each effect folds to its header; carets show state ── */
+#csFx .card[data-fx] h3{cursor:pointer;display:flex;align-items:center;gap:7px;user-select:none}
+#csFx .card[data-fx] h3::after{content:"▾";font-size:10px;color:var(--text-muted);transition:transform .18s;margin-left:auto}
+#csFx .card[data-fx].closed h3::after{transform:rotate(-90deg)}
+#csFx .card[data-fx].closed > :not(h3){display:none}
+#csFx .card[data-fx].closed h3{margin-bottom:0}
+/* a non-default effect shows a dot on its header, like the sub-tabs */
+#csFx .card[data-fx].hasval h3::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);order:-1}
+
+/* ── narrow timeline header: drop the info line, wrap the toolbar row ── */
+:root[data-layout="narrow"] #tlInfo{display:none}
+:root[data-layout="narrow"] .tl-head{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 10px;margin-bottom:6px}
+:root[data-layout="narrow"] .tl-toolbar{max-width:100%;overflow-x:auto;scrollbar-width:none}
+:root[data-layout="narrow"] .tl-toolbar::-webkit-scrollbar{display:none}
+:root[data-layout="narrow"] .tl-right{justify-self:auto;gap:8px}
+/* ── EDIT landscape phones: full-height viewer LEFT, full-height timeline RIGHT.
+   stage-main is display:contents so its children join the #edit grid; the
+   media/toolbox pane becomes a drawer that slides in from the left, and the
+   clip inspector pops up as the right-hand drawer when a clip is tapped. ── */
+:root[data-layout="narrow"][data-orient="landscape"] #edit.active{display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(288px,44vw);
+  grid-template-rows:minmax(0,1fr);
+  grid-template-areas:"viewer timeline"}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .stage-main{display:contents}
+/* player fills the WHOLE left column; transport floats as a pill over it */
+:root[data-layout="narrow"][data-orient="landscape"] #edit .pv-stage{grid-area:viewer;padding:8px;min-height:0}
+:root[data-layout="narrow"][data-orient="landscape"] #edit #editCtrl{grid-area:viewer;align-self:end;justify-self:center;
+  min-width:0;z-index:6;margin-bottom:16px;padding:4px 12px;pointer-events:auto;
+  background:rgba(12,12,15,.66);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.09);border-radius:999px;max-width:calc(100% - 24px)}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .timeline{grid-area:timeline;
+  min-height:0;min-width:0;display:flex;flex-direction:column;
+  border-left:1px solid var(--border);padding:6px 8px;padding-right:calc(8px + env(safe-area-inset-right))}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-scrollwrap{flex:1;min-height:0}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-scroll{flex:1;min-height:0;overflow-y:auto}
+/* two stacked rows: the tool toolbar gets the full width on top, and
+   zoom/volume/+ ride on their own row below so neither is cramped */
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-head{display:flex;flex-direction:column;
+  align-items:stretch;flex-wrap:nowrap;gap:5px;margin-bottom:4px;overflow:visible}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-toolbar{max-width:100%;overflow-x:auto;
+  scrollbar-width:none}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-toolbar::-webkit-scrollbar{display:none}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-right{display:flex;flex:none;
+  justify-content:flex-start;justify-self:auto;gap:10px;overflow-x:auto;scrollbar-width:none}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-right::-webkit-scrollbar{display:none}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .tl-right .now{display:none}
+:root[data-layout="narrow"][data-orient="landscape"] .timecode{min-width:0;padding:7px 10px}
+/* media/toolbox drawer slides from the LEFT (replaces the left pane) in edit */
+:root[data-layout="narrow"][data-orient="landscape"] #edit .side{left:0;right:auto;
+  border-left:0;border-right:1px solid var(--border-medium);border-radius:0 16px 16px 0;transform:translateX(-106%)}
+:root[data-layout="narrow"][data-orient="landscape"] #edit .side.sheet-open{transform:none}
+/* slimmer colour strip in landscape: number only, no name/duration */
+:root[data-layout="narrow"][data-orient="landscape"] .cstrip-item{width:58px;height:34px}
+:root[data-layout="narrow"][data-orient="landscape"] .cstrip-item .cs-name,
+:root[data-layout="narrow"][data-orient="landscape"] .cstrip-item .cs-dur{display:none}
+:root[data-layout="narrow"][data-orient="landscape"] .cstrip-item .cs-meta{padding:6px 4px 2px}
+:root[data-layout="narrow"][data-orient="landscape"] .cs-sep{height:22px}
+/* clip-settings drawer button lives in the timeline toolbar on narrow only —
+   on wide the inspector is a fixed sidebar */
+#toolInspect,#toolInspectSep{display:none}
+:root[data-layout="narrow"] #toolInspect{display:flex}
+:root[data-layout="narrow"] #toolInspectSep{display:inline-block}
+#scopeToggle.on{background:var(--accent);color:var(--on-accent)}
+/* toggled ghost buttons (Bypass) */
+button.ghost.on{background:var(--accent-bg);color:var(--accent-light);box-shadow:inset 0 0 0 1px var(--accent-glow)}
+/* ── safe areas (viewport-fit=cover): keep UI clear of notch + home bar ── */
+header{padding-left:calc(18px + env(safe-area-inset-left));padding-right:calc(18px + env(safe-area-inset-right))}
+:root[data-layout="narrow"] header{padding-left:calc(12px + env(safe-area-inset-left));padding-right:calc(12px + env(safe-area-inset-right))}
+:root[data-layout="narrow"] .timeline{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+:root[data-layout="narrow"][data-orient="portrait"] .side,
+:root[data-layout="narrow"][data-orient="portrait"] .side-r{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+:root[data-layout="narrow"][data-orient="landscape"] .side,
+:root[data-layout="narrow"][data-orient="landscape"] .side-r{padding-right:calc(16px + env(safe-area-inset-right))}
+/* narrow header: drop the wordmark, let the tab bar scroll instead of clipping */
+:root[data-layout="narrow"] .brand-name{display:none}
+:root[data-layout="narrow"] .main-tabs{overflow-x:auto;scrollbar-width:none;max-width:calc(100vw - 150px)}
+:root[data-layout="narrow"] .main-tabs::-webkit-scrollbar{display:none}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:500;
+  background:var(--bg-elevated);border:1px solid var(--border-medium);border-radius:var(--radius-full);
+  padding:10px 20px;font-size:13px;box-shadow:0 12px 34px rgba(0,0,0,.5);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.err{border-color:var(--danger);color:var(--danger)}

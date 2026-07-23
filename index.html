@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>Eddit — WebGPU video editor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%238ff0b8'/><stop offset='.55' stop-color='%235fd598'/><stop offset='1' stop-color='%232ba7d8'/></linearGradient></defs><rect width='256' height='256' rx='58' fill='%23161c24'/><g fill='url(%23g)'><rect x='58' y='61' width='96' height='32' rx='16'/><rect x='58' y='112' width='140' height='32' rx='16'/><rect x='58' y='163' width='96' height='32' rx='16'/></g></svg>">
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0d0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Eddit">
+<link rel="apple-touch-icon" href="./icon.svg">
+<link rel="stylesheet" href="./styles.css">
+<script src="./coi-serviceworker.js"></script>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-film" viewBox="0 0 16 16"><path d="M2 2h12a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zm.8 1.4v1.8h1.8V3.4zm0 3.4v1.8h1.8V6.8zm0 3.4v1.8h1.8v-1.8zm8.6-6.8v1.8h1.8V3.4zm0 3.4v1.8h1.8V6.8zm0 3.4v1.8h1.8v-1.8zM6 4.5v7l5-3.5z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.2l1.5 1.7H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"/></symbol>
+  <symbol id="i-wand" viewBox="0 0 16 16"><path d="M11.8 1.2l1.4 1.4a1 1 0 0 1 0 1.4l-8.3 8.3-2.8 1.4 1.4-2.8 8.3-8.3a1 1 0 0 1 1.4 0zM13.6 8.4l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M4 4h16v3H4zM4 9h16v3H4zM4 14h10v3H4zM4 19h7v2H4zM16 15l6 3.5L16 22z"/></symbol>
+</svg>
+
+<header>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 256 256">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#8ff0b8"/><stop offset=".55" stop-color="#5fd598"/><stop offset="1" stop-color="#2ba7d8"/></linearGradient></defs>
+      <rect width="256" height="256" rx="58" fill="#161c24"/>
+      <g fill="url(#lg)">
+        <rect x="58" y="61" width="96" height="32" rx="16"/>
+        <rect x="58" y="112" width="140" height="32" rx="16"/>
+        <rect x="58" y="163" width="96" height="32" rx="16"/>
+      </g>
+    </svg>
+    <span class="brand-name">Eddit</span>
+  </div>
+  <nav class="main-tabs" id="tabs">
+    <div class="tab-indicator" id="tabInd"></div>
+    <button class="main-tab active" data-tab="media">Media</button>
+    <button class="main-tab" data-tab="edit">Edit</button>
+    <button class="main-tab" data-tab="color">Color</button>
+    <button class="main-tab" data-tab="export">Export</button>
+  </nav>
+  <div class="hdr-right">
+    <button id="drawerBtn" class="pill pill-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M3 10h12"/></svg></button>
+    <button id="projBtn" class="pill pill-btn" title="Projects — open, create, manage"><svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.2l1.5 1.7H13A1.5 1.5 0 0 1 14.5 5v7A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12z"/></svg>Projects</button>
+    <span id="buildTag" class="pill" style="font-variant-numeric:tabular-nums" title="Build — tap for diagnostics/logs"></span>
+    <span class="pill" id="ffPill" title="ffmpeg.wasm — tap for diagnostics/logs">ffmpeg —</span>
+    <span class="pill" id="gpuPill">WebGPU…</span>
+    <span class="pill" id="codecPill">Codecs…</span>
+  </div>
+</header>
+<div class="ff-status" id="ffStatus"></div>
+
+<div class="overlay hidden" id="diagOverlay">
+  <div class="box" style="max-width:720px;width:92vw;text-align:left">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin:0;font-size:15px">Diagnostics — build <span id="diagBuild"></span></h3>
+      <div class="row" style="gap:6px">
+        <button class="ghost" id="diagCopy" style="padding:6px 12px">Copy</button>
+        <button class="ghost" id="diagClear" style="padding:6px 12px">Clear</button>
+        <button class="ghost" id="diagClose" style="padding:6px 12px">Close</button>
+      </div>
+    </div>
+    <div id="diagCaps" class="statline" style="margin-bottom:8px"></div>
+    <pre id="diagLog" style="margin:0;max-height:52vh;overflow:auto;background:#0c0c0e;border:1px solid var(--border);border-radius:8px;padding:12px;font:11.5px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary)"></pre>
+  </div>
+</div>
+
+<div class="overlay hidden" id="projOverlay">
+  <div class="box proj-box">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <h3 style="margin:0;font-size:16px">Projects</h3>
+      <div class="row" style="gap:6px">
+        <button class="ghost" id="pwaInstall" style="padding:7px 12px" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>Install app</button>
+        <button class="accent" id="projNew" style="padding:7px 14px">+ New project</button>
+        <button class="ghost" id="projClose" style="padding:7px 12px">Close</button>
+      </div>
+    </div>
+    <div class="proj-grid" id="projGrid"></div>
+  </div>
+</div>
+
+<main>
+  <section class="tab-panel active" id="media">
+    <aside class="side">
+      <div class="glass card">
+        <div class="row" style="justify-content:space-between">
+          <h3 style="margin:0">Media pool</h3>
+        </div>
+        <button class="accent" id="importBtn" style="width:100%;margin:8px 0 4px"><svg class="ic"><use href="#i-folder"/></svg>Import media…</button>
+        <button class="ghost" id="importFolderBtn" style="width:100%;margin:0 0 4px"><svg class="ic"><use href="#i-folder"/></svg>Import folder…</button>
+        <input type="file" id="fileInput" accept="video/*,.mp4,.mov,.m4v,.mkv,.webm,.avi,.mts,.m2ts,.3gp" multiple hidden>
+        <div class="statline" id="importHint" style="margin-top:6px">MP4 / MOV · H.264 &amp; H.265 — or drag &amp; drop. On Android, pick from <b>Files → Downloads</b>. Proxies build automatically.</div>
+      </div>
+      <div class="glass card">
+        <h3>Bins</h3>
+        <div class="bin-list" id="binList"><div class="statline">All media</div></div>
+      </div>
+      <div class="glass card">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Proxy</h3><span class="statline" id="proxyStat">idle</span></div>
+        <label class="row" style="gap:7px;margin-top:8px;color:var(--text-secondary)"><input type="checkbox" id="autoProxy" checked>Auto-generate on import</label>
+        <label style="margin-top:8px">Proxy height</label>
+        <select id="proxyH"><option value="540">540p</option><option value="720" selected>720p</option><option value="1080">1080p</option></select>
+        <div class="prog hidden" id="proxyProg" style="margin-top:10px"><div></div></div>
+        <div class="row" style="justify-content:space-between;margin-top:10px">
+          <span class="statline" id="proxyCache">cache: …</span>
+          <button class="ghost" id="proxyClear" style="padding:4px 10px;font-size:11px">Clear cache</button>
+        </div>
+      </div>
+    </aside>
+    <div class="media-main">
+      <div class="toolbar">
+        <input type="text" id="search" placeholder="search…" style="max-width:200px">
+        <div class="spacer"></div>
+        <label class="row" style="gap:7px;color:var(--text-muted)">Size<input type="range" id="tsize" min="150" max="360" value="215" style="width:90px"></label>
+        <span class="statline" id="mediaCount"></span>
+        <button class="tl-addbtn panels-btn" id="mediaDrawerBtn" title="Media panel"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M3 10h12"/></svg></button>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="grid-empty" id="gridEmpty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>
+        <h2>New project</h2>
+        <p>Import a folder of footage to get started. Eddit decodes with WebCodecs,<br>grades on the GPU with WebGPU, and builds proxies — all in your browser.</p>
+        <button class="accent" id="emptyImport"><svg class="ic"><use href="#i-folder"/></svg>Import media…</button>
+      </div>
+    </div>
+    <aside class="side-r" id="mediaInspector" style="display:none">
+      <video class="pv-canvas" id="mediaPreview" controls style="width:100%"></video>
+      <div class="glass card">
+        <h3>Clip</h3>
+        <div id="mediaMeta" class="statline" style="line-height:1.9"></div>
+        <button class="ghost" id="addToTl" style="width:100%;margin-top:10px"><svg class="ic"><use href="#i-film"/></svg>Add to timeline</button>
+        <button class="ghost" id="rebuildProxy" style="width:100%;margin-top:6px">Rebuild proxy</button>
+        <button class="ghost" id="removeMediaBtn" style="width:100%;margin-top:6px;color:var(--danger)">Remove from project</button>
+      </div>
+    </aside>
+  </section>
+
+  <section class="tab-panel" id="edit">
+    <aside class="side">
+      <div class="side-tabs" id="editSideTabs">
+        <button data-st="pool" class="on">Media</button>
+        <button data-st="fx">Toolbox</button>
+      </div>
+      <div class="glass card side-panel" data-st="pool" style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Media pool</h3>
+          <div class="row" style="gap:8px">
+            <input type="range" id="poolSize" min="84" max="220" step="4" value="110" title="Thumbnail size" style="width:74px">
+            <div class="pool-toggle" id="poolViewToggle">
+              <button data-v="grid" class="on" title="Grid">▦</button>
+              <button data-v="list" title="List">▤</button>
+            </div>
+          </div>
+        </div>
+        <input type="text" id="poolSearch" placeholder="search — drag clips to the timeline" style="margin-top:8px">
+        <div id="editPool" class="pool-grid" style="margin-top:10px;flex:1;min-height:0;overflow:auto"></div>
+      </div>
+      <div class="glass card side-panel hidden" data-st="fx" style="flex:1;min-height:0;overflow:auto">
+        <h3 style="margin:0 0 4px">Generators</h3>
+        <p class="statline" style="margin:0 0 8px">Add to the timeline at the playhead.</p>
+        <div class="fx-grid" id="fxGenerators"></div>
+        <h3 style="margin:16px 0 4px">Effects</h3>
+        <p class="statline" style="margin:0 0 8px">One-tap grade presets for the selected clip.</p>
+        <div class="fx-grid" id="fxEffects"></div>
+        <h3 style="margin:16px 0 4px">More soon</h3>
+        <p class="statline" style="margin:0">Blur, masks, transitions library and audio FX will live here.</p>
+      </div>
+    </aside>
+    <div class="stage-main">
+      <div class="pv-stage">
+        <canvas class="pv-canvas" id="editCanvas"></canvas>
+        <div class="pv-empty" id="editEmpty"><div class="big">🎬</div><div><b>No preview yet.</b><br>Add clips to the timeline — they play back to back through the GPU pipeline.</div></div>
+      </div>
+      <div class="pv-ctrl" id="editCtrl">
+        <div class="controls-row">
+          <div class="transport">
+            <button class="btn-tp" id="ePrevC" title="Previous clip"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM13 2 6 8l7 6z"/></svg></button>
+            <button class="btn-tp" id="ePrevF" title="Prev frame"><svg viewBox="0 0 16 16"><path d="M10.5 2 4 8l6.5 6z"/></svg></button>
+            <button class="btn-tp play" id="ePlay" title="Play/Pause (Space)"><svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg></button>
+            <button class="btn-tp" id="eNextF" title="Next frame"><svg viewBox="0 0 16 16"><path d="M5.5 2 12 8l-6.5 6z"/></svg></button>
+            <button class="btn-tp" id="eNextC" title="Next clip"><svg viewBox="0 0 16 16"><path d="M11 2h2v12h-2zM3 2l7 6-7 6z"/></svg></button>
+          </div>
+          <button class="btn-tp" id="toolIn" title="Set In point at playhead (I) — Shift+I / shift-click clears"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16"/><path d="M9 12h10M15 8l4 4-4 4"/></svg></button>
+          <button class="btn-tp" id="toolOut" title="Set Out point at playhead (O) — Shift+O / shift-click clears"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4v16"/><path d="M15 12H5M9 8l-4 4 4 4"/></svg></button>
+          <button class="btn-tp" id="eLoop" title="Loop playback (L) — loops the In/Out section, or the whole timeline if none is set"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+          <span class="timecode" id="eTc">00:00:00.00 / 00:00:00.00</span>
+          <button class="btn-tp" id="eBypass" title="Bypass grade — preview before/after (export always uses the grade)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+      <div class="timeline" id="tlWrap">
+        <div class="tl-head">
+          <span class="statline" id="tlInfo"></span>
+          <div class="tl-toolbar">
+            <button class="tl-tool on" id="toolSelect" data-tool="select" title="Select / trim">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 8-5.5 1.4L10.5 20z"/></svg></button>
+            <button class="tl-tool" id="toolRazor" data-tool="razor" title="Razor (B) — split at playhead">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="7.5" width="18" height="6.5" rx="1"/><path d="M12 14.5V21" stroke-dasharray="2 2"/></svg></button>
+            <span class="tl-tsep"></span>
+            <button class="tl-tool on" id="toolSnap" title="Snapping (S)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3H3v9a9 9 0 0 0 18 0V3h-3v9a6 6 0 0 1-12 0z"/></svg></button>
+            <span class="tl-tsep"></span>
+            <button class="tl-tool" id="toolDelete" title="Delete clip (Del)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M9 6V4h6v2M6 6l1 14h10l1-14"/></svg></button>
+            <span class="tl-tsep"></span>
+            <button class="tl-tool" id="toolUndo" title="Undo (Ctrl+Z)" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7L4 12l5 5"/><path d="M4 12h11a5 5 0 0 1 0 10h-1"/></svg></button>
+            <button class="tl-tool" id="toolRedo" title="Redo (Ctrl+Shift+Z)" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l5 5-5 5"/><path d="M20 12H9a5 5 0 0 0 0 10h1"/></svg></button>
+            <span class="tl-tsep"></span>
+            <button class="tl-tool" id="toolTitle" title="Add title / text">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg></button>
+            <span class="tl-tsep"></span>
+            <button class="tl-tool" id="toolLaneH" title="Track height — click to cycle, Alt+scroll to step"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h16"/><path d="M20 8l2-2-2-2M20 22l2-2-2-2" opacity=".55"/></svg></button>
+            <span class="tl-tsep" id="toolInspectSep"></span>
+            <button class="tl-tool" id="toolInspect" title="Clip settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h8M16 6h4M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="14" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg></button>
+          </div>
+          <div class="tl-right">
+            <button class="tl-addbtn" id="toolAddClip" title="Add clips or tools — opens the Media / Toolbox panel"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+            <div class="tl-proj" id="tlProjWrap">
+              <button class="tl-tool" id="tlProjBtn" title="Project settings — aspect, resolution, frame rate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+              <div class="proj-pop" id="tlProjPop">
+                <div class="pp-row"><label>Aspect</label><select id="pAspect"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select></div>
+                <div class="pp-row"><label>Resolution</label><select id="pRes"><option value="720">720p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
+                <div class="pp-row"><label>Frame rate</label><select id="pFps"><option value="24">24</option><option value="25">25</option><option value="30">30</option><option value="50">50</option><option value="60">60</option></select></div>
+              </div>
+            </div>
+            <div class="slider-row tl-sld" data-noreset title="Master volume" id="tlVolRow">
+              <label id="tlVolBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg></label>
+              <span class="vol-pop"><input type="range" id="tlMasterVol" min="0" max="1.5" step="0.01" value="1" data-default="1"></span>
+            </div>
+            <div class="slider-row tl-sld" data-noreset title="Timeline zoom">
+              <label>Zoom</label>
+              <input type="range" id="tlZoom" min="0.5" max="12" step="0.5" value="2" data-default="2">
+            </div>
+            <span class="now"><span id="tCur">00:00</span> / <span id="tTot">00:00</span></span>
+          </div>
+        </div>
+        <div class="tl-scrollwrap">
+        <div class="tl-scroll" id="tlScroll">
+          <div class="tl-inner" id="tlInner">
+            <div class="tl-ruler" id="tlRuler"></div>
+            <div id="tlLanes"></div>
+            <div class="tl-playhead" id="tlPlayhead" style="left:0"><i></i></div>
+          </div>
+        </div>
+        <div class="tl-vzoom" id="tlVZoom" title="Track height"><i></i></div>
+        </div>
+      </div>
+    </div>
+    <aside class="side-r" id="editSide">
+      <div class="glass card" id="clipInspector" style="display:none">
+        <h3>Clip</h3>
+        <div id="clipInsBody"></div>
+      </div>
+      <div class="pv-empty" id="clipInsEmpty" style="position:static;padding:30px 16px">
+        <div class="big">🎚️</div>
+        <div>Select a clip on the timeline to edit its <b>transform</b>, speed &amp; audio.</div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="tab-panel" id="color">
+    <div class="stage-main">
+      <div class="pv-stage">
+        <canvas class="pv-canvas" id="colorCanvas"></canvas>
+        <div class="pv-empty" id="colorEmpty"><div class="big">🎨</div><div><b>Add clips to the timeline to grade.</b></div></div>
+        <div class="scopes" id="scopes">
+          <div class="scope-box"><div class="scope-lbl">Waveform</div><canvas id="scopeWave"></canvas></div>
+          <div class="scope-box"><div class="scope-lbl">Parade</div><canvas id="scopeParade"></canvas></div>
+          <div class="scope-box"><div class="scope-lbl">Vectorscope</div><canvas id="scopeVector"></canvas></div>
+          <div class="scope-box"><div class="scope-lbl">Histogram</div><canvas id="scopeHist"></canvas></div>
+        </div>
+      </div>
+      <div class="pv-ctrl">
+        <div class="controls-row">
+          <button class="btn-tp" id="cPrevC" title="Previous clip"><svg viewBox="0 0 16 16"><path d="M3 2h2v12H3zM13 2 6 8l7 6z"/></svg></button>
+          <button class="btn-tp" id="cPrevF" title="Prev frame"><svg viewBox="0 0 16 16"><path d="M10.5 2 4 8l6.5 6z"/></svg></button>
+          <button class="btn-tp play" id="cPlay" title="Play/Pause"><svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg></button>
+          <button class="btn-tp" id="cNextF" title="Next frame"><svg viewBox="0 0 16 16"><path d="M5.5 2 12 8l-6.5 6z"/></svg></button>
+          <button class="btn-tp" id="cNextC" title="Next clip"><svg viewBox="0 0 16 16"><path d="M11 2h2v12h-2zM3 2l7 6-7 6z"/></svg></button>
+          <button class="btn-tp" id="cLoop" title="Loop the selected clip"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
+          <span class="timecode" id="cTc">Clip —</span>
+          <button class="btn-tp" id="cBypass" title="Bypass — preview before/after (export always uses the grade)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          <button class="btn-tp" id="scopeToggle" title="Show/hide scopes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></svg></button>
+          <div class="ctrl-more" id="cMore">
+            <button class="btn-tp" id="cCopy" title="Copy this clip's grade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span class="cml">Copy grade</span></button>
+            <button class="btn-tp" id="cPaste" title="Paste the copied grade onto this clip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg><span class="cml">Paste grade</span></button>
+            <button class="btn-tp" id="cAll" title="Apply this clip's grade to every other timeline clip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l10 6-10 6L2 8z"/><path d="M2 13l10 6 10-6"/></svg><span class="cml">Apply to all clips</span></button>
+            <button class="btn-tp" id="cResetGrade" title="Reset the whole grade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg><span class="cml">Reset grade</span></button>
+            <button class="btn-tp" id="cThumbsBtn" title="Show/hide clip thumbnails"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M8 6v12M16 6v12"/></svg><span class="cml">Thumbnails</span></button>
+            <button class="btn-tp" id="cMiniBtn" title="Show/hide mini timeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="9" height="6" rx="1.5"/><rect x="14.5" y="9" width="6.5" height="6" rx="1.5"/><path d="M3 19.5h18"/></svg><span class="cml">Mini timeline</span></button>
+          </div>
+          <button class="btn-tp" id="cToolsBtn" title="Colour controls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="7.8" r="1.5" fill="currentColor" stroke="none"/><circle cx="8.3" cy="14.2" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.7" cy="14.2" r="1.5" fill="currentColor" stroke="none"/></svg></button>
+          <button class="btn-tp" id="cMoreBtn" title="More controls"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+        </div>
+      </div>
+      <div class="timeline" id="cStripArea">
+        <div class="tl-scroll" id="cThumbsWrap" style="max-height:72px">
+          <div class="tl-inner" id="colorStrip" style="display:flex;gap:6px;padding:6px;align-items:center"></div>
+        </div>
+        <div class="cmini-wrap" id="cMiniWrap"><div class="cmini" id="colorMini"></div></div>
+      </div>
+    </div>
+    <aside class="side-r color-side">
+      <div class="color-sub" id="colorSub">
+        <button class="on" data-cs="wheels">Wheels</button>
+        <button data-cs="adjust">Adjust</button>
+        <button data-cs="curves">Curves</button>
+        <button data-cs="hsl">HSL</button>
+        <button data-cs="mask">Mask</button>
+        <button data-cs="luts">LUTs</button>
+        <button data-cs="fx">FX</button>
+      </div>
+
+      <div class="color-tools" id="csWheels" data-cs="wheels">
+        <div class="glass card">
+          <h3>Input transform</h3>
+          <select id="inputTransform">
+            <option value="none">None (Rec.709)</option>
+            <option value="clog3">Canon C-Log3 → Rec.709</option>
+            <option value="clog2">Canon C-Log2 → Rec.709</option>
+            <option value="slog3">Sony S-Log3 → Rec.709</option>
+            <option value="logc">ARRI LogC → Rec.709</option>
+          </select>
+        </div>
+        <div class="glass card">
+          <h3>Color wheels</h3>
+          <div class="wheels">
+            <div class="wheel"><div class="wrow"><span class="wlabel">Lift</span><button class="reset-btn wheel-reset" title="Reset Lift" aria-label="Reset Lift"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div><div class="wheel-pad" data-wheel="lift"><i class="knob"></i></div><input type="range" class="master" data-master="lift" min="-0.5" max="0.5" step="0.001" value="0"></div>
+            <div class="wheel"><div class="wrow"><span class="wlabel">Gamma</span><button class="reset-btn wheel-reset" title="Reset Gamma" aria-label="Reset Gamma"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div><div class="wheel-pad" data-wheel="gamma"><i class="knob"></i></div><input type="range" class="master" data-master="gamma" min="-0.5" max="0.5" step="0.001" value="0"></div>
+            <div class="wheel"><div class="wrow"><span class="wlabel">Gain</span><button class="reset-btn wheel-reset" title="Reset Gain" aria-label="Reset Gain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div><div class="wheel-pad" data-wheel="gain"><i class="knob"></i></div><input type="range" class="master" data-master="gain" min="-0.5" max="0.5" step="0.001" value="0"></div>
+            <div class="wheel"><div class="wrow"><span class="wlabel">Offset</span><button class="reset-btn wheel-reset" title="Reset Offset" aria-label="Reset Offset"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div><div class="wheel-pad" data-wheel="offset"><i class="knob"></i></div><input type="range" class="master" data-master="offset" min="-0.3" max="0.3" step="0.001" value="0"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csAdjust" data-cs="adjust">
+        <div class="glass card">
+          <h3>Adjust</h3>
+          <div class="slider-row"><label>Exposure</label><input type="range" id="a_exposure" min="-2" max="2" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Contrast</label><input type="range" id="a_contrast" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Saturation</label><input type="range" id="a_saturation" min="0" max="2" step="0.01" value="1" data-default="1"><span class="val">1.00</span></div>
+          <div class="slider-row"><label>Temp</label><input type="range" id="a_temp" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Tint</label><input type="range" id="a_tint" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Pivot</label><input type="range" id="a_pivot" min="0.1" max="0.9" step="0.01" value="0.435" data-default="0.435"><span class="val">0.44</span></div>
+        </div>
+        <div class="glass card">
+          <h3>Tone</h3>
+          <p class="statline" style="margin:0 0 8px">Zone gains keep black anchored — lift shadow detail without wash-out; tone map rolls highlights off filmically.</p>
+          <div class="slider-row"><label>Shadows</label><input type="range" id="a_toneSh" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Highlights</label><input type="range" id="a_toneHi" min="-1" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Tone map</label><input type="range" id="a_toneMap" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csCurves" data-cs="curves">
+        <div class="glass card">
+          <div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">Curves</h3><button class="reset-btn" id="resetCurve" title="Reset this channel" aria-label="Reset channel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div>
+          <div class="color-sub" id="curveCh">
+            <button class="on" data-ch="rgb">RGB</button><button data-ch="r">R</button><button data-ch="g">G</button><button data-ch="b">B</button>
+          </div>
+          <canvas class="curve-canvas" id="curveCanvas" width="300" height="300"></canvas>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csHsl" data-cs="hsl">
+        <div class="glass card">
+          <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">HSL curves</h3><button class="reset-btn" id="resetHsl" title="Reset bands in this mode" aria-label="Reset bands in this mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div>
+          <div class="color-sub" id="hslMode">
+            <button data-m="hue">Hue&thinsp;·&thinsp;Hue</button><button class="on" data-m="sat">Hue&thinsp;·&thinsp;Sat</button><button data-m="lum">Hue&thinsp;·&thinsp;Lum</button>
+          </div>
+          <p class="statline" style="margin:0 0 8px">Shift, boost or mute individual colour ranges.</p>
+          <div id="hslRows"></div>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csMask" data-cs="mask">
+        <div class="glass card">
+          <div class="row" style="justify-content:space-between;margin-bottom:4px"><h3 style="margin:0">Qualifier</h3><button class="reset-btn" id="mReset" title="Reset mask" aria-label="Reset mask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg></button></div>
+          <p class="statline" style="margin:0 0 8px">Pick a colour in the video — the grade then only touches that colour.</p>
+          <div class="row" style="gap:8px;margin-bottom:6px">
+            <button class="ghost" id="mqPick" style="flex:1"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Pick colour</button>
+            <span id="mqSwatch" style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border-medium);background:#26262a;flex:none"></span>
+          </div>
+          <div class="slider-row"><label>Range</label><input type="range" id="mqRange" min="0.03" max="0.8" step="0.01" value="0.25" data-default="0.25"><span class="val">0.25</span></div>
+          <div class="slider-row"><label>Soften</label><input type="range" id="mqSoft" min="0" max="0.5" step="0.01" value="0.12" data-default="0.12"><span class="val">0.12</span></div>
+        </div>
+        <div class="glass card">
+          <h3>Window</h3>
+          <p class="statline" style="margin:0 0 8px">Limit the grade to a region — drag on the video to move it.</p>
+          <div class="color-sub" id="mwShape">
+            <button class="on" data-shape="off">Off</button><button data-shape="circle">Circle</button><button data-shape="rect">Rect</button><button data-shape="linear">Linear</button>
+          </div>
+          <div class="slider-row"><label>Width</label><input type="range" id="mwRx" min="0.05" max="1" step="0.01" value="0.35" data-default="0.35"><span class="val">0.35</span></div>
+          <div class="slider-row"><label>Height</label><input type="range" id="mwRy" min="0.05" max="1" step="0.01" value="0.35" data-default="0.35"><span class="val">0.35</span></div>
+          <div class="slider-row"><label>Feather</label><input type="range" id="mwFeather" min="0" max="0.6" step="0.01" value="0.2" data-default="0.2"><span class="val">0.20</span></div>
+          <div class="slider-row"><label>Angle</label><input type="range" id="mwAngle" min="0" max="6.283" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="row" style="gap:8px;margin-top:8px">
+            <button class="ghost" id="mInvert" style="flex:1">Invert</button>
+            <button class="ghost" id="mShow" style="flex:1">Show mask</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csLuts" data-cs="luts">
+        <div class="glass card">
+          <div class="row" style="justify-content:space-between"><h3 style="margin:0">LUTs</h3>
+            <span class="statline"><input type="range" id="lutMix" min="0" max="1" step="0.01" value="1" style="width:80px;vertical-align:middle"> mix</span></div>
+          <div class="lut-list" id="lutList"></div>
+          <button class="ghost" id="loadLut" style="width:100%;margin-top:8px"><svg class="ic"><use href="#i-folder"/></svg>Load .cube from disk…</button>
+          <input type="file" id="lutFile" accept=".cube" hidden>
+        </div>
+      </div>
+
+      <div class="color-tools hidden" id="csFx" data-cs="fx">
+        <div class="glass card" data-fx="vignette">
+          <h3>Vignette</h3>
+          <div class="slider-row"><label>Amount</label><input type="range" id="a_vignette" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Size</label><input type="range" id="a_vignetteSize" min="0.2" max="1.2" step="0.01" value="0.7" data-default="0.7"><span class="val">0.70</span></div>
+          <div class="slider-row"><label>Feather</label><input type="range" id="a_vignetteFeather" min="0.05" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+        </div>
+        <div class="glass card" data-fx="glow">
+          <h3>Glow</h3>
+          <p class="statline" style="margin:0 0 8px">Exponential bloom — highlights bleed softly over their surroundings.</p>
+          <div class="slider-row"><label>Amount</label><input type="range" id="a_glow" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Threshold</label><input type="range" id="a_glowThreshold" min="0" max="1" step="0.01" value="0.6" data-default="0.6"><span class="val">0.60</span></div>
+          <div class="slider-row"><label>Radius</label><input type="range" id="a_glowRadius" min="0.05" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+        </div>
+        <div class="glass card" data-fx="distort">
+          <h3>Distort</h3>
+          <p class="statline" style="margin:0 0 8px">Turbulence displace — an evolving noise field warps the image.</p>
+          <div class="slider-row"><label>Amount</label><input type="range" id="a_distort" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Scale</label><input type="range" id="a_distortScale" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+          <div class="slider-row"><label>Speed</label><input type="range" id="a_distortSpeed" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+        </div>
+        <div class="glass card" data-fx="wiggle">
+          <h3>Wiggle</h3>
+          <p class="statline" style="margin:0 0 8px">Smooth random position jitter — handheld/energy feel.</p>
+          <div class="slider-row"><label>Amount</label><input type="range" id="a_wiggle" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
+          <div class="slider-row"><label>Speed</label><input type="range" id="a_wiggleFreq" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="tab-panel" id="export">
+    <div class="ex-wrap">
+      <div class="glass ex-hero">
+        <div class="ex-ico"><svg viewBox="0 0 24 24"><use href="#i-export"/></svg></div>
+        <div style="flex:1"><div class="big" id="exState">Nothing to export yet</div>
+          <div class="sub">Render the graded timeline straight out — H.264 MP4, encoded on the GPU via WebCodecs.</div></div>
+      </div>
+      <div class="glass card">
+        <h3>Project &amp; render settings</h3>
+        <div class="ex-form">
+          <div><label>Format</label><select id="exFmt"><option value="mp4">MP4 (H.264)</option></select></div>
+          <div><label>Aspect</label><select id="exAspect"><option value="16:9" selected>16:9</option><option value="9:16">9:16 vertical</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9 cinema</option></select></div>
+          <div><label>Resolution</label><select id="exRes"><option value="720">720p</option><option value="1080" selected>1080p</option><option value="2160">4K UHD</option></select></div>
+          <div><label>Frame rate</label><select id="exFps"><option value="24">24</option><option value="25">25</option><option value="30" selected>30</option><option value="50">50</option><option value="60">60</option></select></div>
+          <div><label>Bitrate (Mbps)</label><input type="number" id="exBitrate" value="20" min="1" max="200"></div>
+        </div>
+        <button id="exRender" style="width:100%;margin-top:16px"><svg class="ic"><use href="#i-export"/></svg>Render</button>
+        <div class="prog hidden" id="exProg" style="margin-top:12px"><div></div></div>
+        <div class="statline" id="exStatus" style="margin-top:8px"></div>
+        <div id="exResult" class="hidden" style="margin-top:12px">
+          <a id="exDownload" download="eddit-export.mp4"><button class="ghost" style="width:100%">⬇ Download rendered video</button></a>
+        </div>
+      </div>
+      <div class="glass card">
+        <h3>Timeline — <span id="exClipCount">0</span> clips</h3>
+        <div class="kv" id="exSummary">Add clips in the Edit tab.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+<div id="sheetScrim"></div>
+<button id="sheetFab" title="Panels"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M3 10h12"/></svg></button>
+
+<script src="./vendor/mp4box.all.min.js"></script>
+<script src="./vendor/mp4-muxer.min.js"></script>
+<script type="module" src="./src/main.js?v=0.9.0"></script>
+</body>
+</html>
