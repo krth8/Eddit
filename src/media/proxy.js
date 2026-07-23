@@ -35,7 +35,7 @@ function mkEncoder(Mux, pw, ph, framerate) {
 }
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 
-export async function makeProxy(file, targetH, onProgress, onStatus) {
+export async function makeProxy(file, targetH, onProgress, onStatus, hintMP) {
   const Mux = window.Mp4Muxer;
   const canEncode = ('VideoEncoder' in window) && !!Mux;
   const errs = [];
@@ -65,7 +65,8 @@ export async function makeProxy(file, targetH, onProgress, onStatus) {
   // tier 3: ffmpeg.wasm software decode+encode — the universal last resort
   try {
     onStatus?.('Converting with ffmpeg.wasm…');
-    const blob = await transcodeToProxy(file, targetH, onProgress, onStatus);
+    const blob = await transcodeToProxy(file, targetH, onProgress, onStatus,
+      dem?.width ? dem.width * dem.height : (hintMP || 0));
     let w = 0, h = 0;
     try { const pm = await probe(blob); w = pm.width || 0; h = pm.height || 0; if (pm.url) URL.revokeObjectURL(pm.url); } catch {}
     return { url: URL.createObjectURL(blob), blob, width: w, height: h, size: blob.size, method: 'ffmpeg' };

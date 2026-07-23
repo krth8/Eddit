@@ -96,13 +96,13 @@ export async function getFFmpeg(onStatus) {
 let _jobs = 0;   // conversions since the current core was loaded
 function _recycle() { try { _ff?.terminate?.(); } catch {} _ff = null; _loading = null; _jobs = 0; }
 
-export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
+export async function transcodeToProxy(file, targetH, onProgress, onStatus, hintMP) {
   // The wasm heap only ever GROWS — a long proxy queue (dozens of 6K clips)
   // slowly fragments it until a conversion aborts mid-queue. Recycling the
   // engine every few jobs resets the heap for ~2s of reload time.
   if (_jobs >= 4) _recycle();
   try {
-    const out = await runTranscode(file, targetH, onProgress, onStatus, false);
+    const out = await runTranscode(file, targetH, onProgress, onStatus, false, hintMP);
     _jobs++;
     return out;
   } catch (e) {
@@ -118,12 +118,12 @@ export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
     console.warn('[ffmpeg] transcode failed (' + (stalled ? 'stall' : 'error') + '), retrying on a fresh core:', msg);
     onStatus?.(stalled ? 'engine stalled — restarting…' : 'retrying with low-memory engine…', null);
     _recycle(); _forceST = !stalled;
-    try { const out = await runTranscode(file, targetH, onProgress, onStatus, !stalled); _jobs++; return out; }
+    try { const out = await runTranscode(file, targetH, onProgress, onStatus, !stalled, hintMP); _jobs++; return out; }
     finally { _forceST = false; }
   }
 }
 
-async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
+async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP) {
   const ff = await getFFmpeg(onStatus);
   const outName = 'proxy.mp4';
   const MDIR = '/in';
@@ -175,22 +175,16 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
     onStatus?.('converting…', 0);
     // Frame size decides how many threads the wasm heap can afford: every
     // thread holds full decoded frames (6K yuv422p10 ≈ 85MB each), so big
-    // frames must run narrow or the worker aborts with OOM. Read the stream
-    // dimensions with a header-only pass first.
-    let mp = 0;
-    try {
-      const probeLogs = [];
-      const cb = ({ message }) => probeLogs.push(message);
-      ff.on('log', cb);
-      await ff.exec(['-hide_banner', '-i', inPath]).catch(() => {}); // exits non-zero by design
-      ff.off?.('log', cb);
-      const m = probeLogs.join('\n').match(/Video:.*?(\d{3,5})x(\d{3,5})/);
-      if (m) { mp = (+m[1] * +m[2]) / 1e6; console.log('[ffmpeg] source ~' + mp.toFixed(1) + 'MP → thread cap'); }
-    } catch {}
+    // frames must run narrow or the worker aborts with OOM. Dimensions come
+    // from the caller when known (hintMP); otherwise the file size is the
+    // proxy — anything reaching this tier is an exotic camera codec, and big
+    // files mean big frames. (A separate ffmpeg header-probe exec was tried
+    // and removed: every exec EXIT is a deadlock opportunity in the MT core.)
+    const mp = (hintMP || 0) / 1e6;
     let threads = _mt ? Math.max(2, Math.min(16, navigator.hardwareConcurrency || 4)) : 1;
     if (lowMem) threads = 1;
-    else if (mp > 12) threads = Math.min(threads, 2);   // 5K/6K+
-    else if (mp > 8) threads = Math.min(threads, 4);    // 4K
+    else if (mp > 12 || (!mp && file.size > 150e6)) threads = Math.min(threads, 2);   // 5K/6K+
+    else if (mp > 8 || (!mp && file.size > 80e6)) threads = Math.min(threads, 4);     // 4K
     const code = await ff.exec([
       '-threads', String(threads),
       // decoder shortcuts: skip the in-loop deblock filter and allow non-spec

@@ -207,7 +207,8 @@ async function runQueue() {
             const c = cards.get(m.id); const bar = c && c.querySelector('.card-prog i');
             if (bar) bar.style.width = Math.round(p * 100) + '%';
           },
-          (text, pct) => ffUI(text, pct));
+          (text, pct) => ffUI(text, pct),
+          (m.width || 0) * (m.height || 0));
         if (m.removed) continue;
         m.proxyUrl = res.url; m.proxyBlob = res.blob; m.proxyW = res.width; m.proxyH = res.height;
         m.proxyKey = key; m.proxyReady = true; m.proxyStatus = 'ready'; m.proxyMethod = res.method; m.proxyError = null;
