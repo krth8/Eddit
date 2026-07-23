@@ -93,18 +93,32 @@ export async function getFFmpeg(onStatus) {
 // Transcode any file to a downscaled, all-intra H.264 MP4 (a proxy). 10-bit is
 // converted to 8-bit yuv420p; the log signal is preserved so the Color tab's
 // Log->Rec.709 transform/LUT still applies.
+let _jobs = 0;   // conversions since the current core was loaded
+function _recycle() { try { _ff?.terminate?.(); } catch {} _ff = null; _loading = null; _jobs = 0; }
+
 export async function transcodeToProxy(file, targetH, onProgress, onStatus) {
+  // The wasm heap only ever GROWS — a long proxy queue (dozens of 6K clips)
+  // slowly fragments it until a conversion aborts mid-queue. Recycling the
+  // engine every few jobs resets the heap for ~2s of reload time.
+  if (_jobs >= 4) _recycle();
   try {
-    return await runTranscode(file, targetH, onProgress, onStatus, false);
+    const out = await runTranscode(file, targetH, onProgress, onStatus, false);
+    _jobs++;
+    return out;
   } catch (e) {
     // A wasm OOM (e.g. 6K ProRes: 85MB frames × decoder buffers × x264
     // threads) ABORTS the worker, leaving the core unusable — reload a
     // single-threaded core and retry once with minimal memory. Threads are the
     // memory multiplier, so 1 thread fits where 16 blow the heap.
-    console.warn('[ffmpeg] transcode failed, retrying with the low-memory engine:', e?.message || e);
-    onStatus?.('retrying with low-memory engine…', null);
-    _ff = null; _loading = null; _forceST = true;
-    try { return await runTranscode(file, targetH, onProgress, onStatus, true); }
+    const msg = e?.message || String(e);
+    // a watchdog TERMINATE means the core deadlocked (age-related) — a fresh
+    // multi-thread core almost always completes, so keep the fast path for
+    // that case and reserve single-thread low-memory mode for real OOMs
+    const stalled = /terminat/i.test(msg);
+    console.warn('[ffmpeg] transcode failed (' + (stalled ? 'stall' : 'error') + '), retrying on a fresh core:', msg);
+    onStatus?.(stalled ? 'engine stalled — restarting…' : 'retrying with low-memory engine…', null);
+    _recycle(); _forceST = !stalled;
+    try { const out = await runTranscode(file, targetH, onProgress, onStatus, !stalled); _jobs++; return out; }
     finally { _forceST = false; }
   }
 }
@@ -115,9 +129,11 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
   const MDIR = '/in';
 
   const logs = [];
-  const logCb = ({ message }) => { logs.push(message); if (logs.length > 80) logs.shift(); };
+  let beat = performance.now();   // liveness: any log/progress resets it
+  const logCb = ({ message }) => { beat = performance.now(); logs.push(message); if (logs.length > 80) logs.shift(); };
   const t0 = performance.now();
   const progCb = ({ progress }) => {
+    beat = performance.now();
     const p = Math.max(0, Math.min(0.99, progress || 0));
     onProgress?.(p);
     let eta = '';
@@ -126,6 +142,19 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
   };
   ff.on('log', logCb);
   ff.on('progress', progCb);
+  // DEADLOCK WATCHDOG: the multi-thread core sometimes never returns from
+  // exec() even after encoding every frame (stuck at "99%" — pthreads fail to
+  // join at exit, more likely the longer the core has lived). No output for
+  // 90s = dead: terminate the worker so exec rejects and the caller retries
+  // on a fresh core instead of wedging the whole proxy queue.
+  const wd = setInterval(() => {
+    if (performance.now() - beat > 90000) {
+      clearInterval(wd);
+      console.warn('[ffmpeg] no output for 90s — terminating the stalled engine');
+      if (_ff === ff) { _ff = null; _loading = null; _jobs = 0; }
+      try { ff.terminate?.(); } catch {}
+    }
+  }, 5000);
 
   // Mount the File via WORKERFS so ffmpeg reads it on demand instead of copying
   // the whole (potentially multi-GB 4K) file into the wasm heap. Fall back to
@@ -188,6 +217,7 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem) {
     onStatus?.('done', 1);
     return blob;
   } finally {
+    clearInterval(wd);
     // a dead (OOM-aborted) worker never answers — timeout-guard the cleanup so
     // the retry path isn't wedged behind an unmount that will never resolve
     if (mounted) await withTimeout(ff.unmount(MDIR), 3000, 'unmount timed out').catch(() => {});
