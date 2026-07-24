@@ -42,6 +42,24 @@ export async function initMedia(eng) {
     if (files.length) importFiles(files);
   });
 
+  // manual proxy generation — surfaces when auto-generate is off. "Missing"
+  // queues only clips without a proxy; "All" force-rebuilds everything linked.
+  const gpRow = el('genProxyRow');
+  const syncGenRow = () => gpRow?.classList.toggle('hidden', el('autoProxy').checked);
+  el('autoProxy').addEventListener('change', syncGenRow);
+  syncGenRow();
+  if (el('genProxyBtn')) el('genProxyBtn').onclick = () => {
+    const all = el('genProxyMode').value === 'all';
+    let n = 0;
+    for (const m of state.media) {
+      if (!m.file || m.removed) continue;
+      if (!all && m.proxyReady) continue;
+      queueProxy(m, all);
+      n++;
+    }
+    toast(n ? `Queued ${n} prox${n === 1 ? 'y' : 'ies'}` : 'Nothing to generate — all clips have proxies');
+  };
+
   el('tsize').oninput = (e) => el('grid').style.setProperty('--tw', e.target.value + 'px');
   el('search').oninput = renderGrid;
 
