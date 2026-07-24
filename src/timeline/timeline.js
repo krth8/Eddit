@@ -8,7 +8,7 @@ import {
 import { el, $$, fmtShort, fmtTC, clamp, toast } from '../util.js';
 import { getPeaks, drawWave } from './waveform.js';
 import { toggleSheet, openSheet, isNarrow } from '../layout.js';
-import { wireHoverScrub } from '../tabs/media.js';
+import { wireHoverScrub, applyThumbStyle } from '../tabs/media.js';
 import { TITLE_FONTS, TITLE_ANIMS } from './title.js';
 
 let engine = null;
@@ -551,10 +551,11 @@ export function renderPool() {
     const d = document.createElement('div');
     d.className = 'pool-thumb';
     d.title = m.name;
-    d.innerHTML = `<div class="pt-img" ${m.thumb ? `style="background-image:url(${m.thumb})"` : ''}>`
+    d.innerHTML = `<div class="pt-img">`
       + `<span class="pt-dur">${fmtShort(m.duration)}</span>${m.proxyReady ? '<span class="pt-proxy" title="proxy ready"></span>' : ''}</div>`
       + `<div class="pt-meta"><div class="pt-name"></div><div class="pt-sub">${m.width || '?'}×${m.height || '?'} · ${fmtShort(m.duration)}</div></div>`;
     d.querySelector('.pt-name').textContent = m.name.replace(/\.[a-z0-9]+$/i, '');
+    applyThumbStyle(d.querySelector('.pt-img'), m);   // mid-strip frame default
     // hover-scrub like the Media grid (works mid-proxy-build via the original)
     wireHoverScrub(m, d.querySelector('.pt-img'));
     // pointer-based drag so it works with touch (Chrome OS / tablets) too —

@@ -238,9 +238,10 @@ canvas.pv-canvas{display:block;max-width:100%;max-height:100%;
 .pool-thumb .pt-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
 .pool-thumb .pt-sub{font-size:9.5px;margin-top:1px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   font-variant-numeric:tabular-nums}
-.pool-grid.list .pool-thumb{display:flex;align-items:center;gap:8px}
-.pool-grid.list .pool-thumb .pt-img{width:64px;aspect-ratio:auto;height:36px;flex:none}
-.pool-grid.list .pool-thumb .pt-meta{flex:1;min-width:0;padding:0 6px 0 0}
+.pool-grid.list .pool-thumb{display:flex;align-items:center;gap:9px}
+.pool-grid.list .pool-thumb .pt-img{width:96px;aspect-ratio:16/9;height:auto;flex:none;border-radius:6px 0 0 6px}
+.pool-grid.list .pool-thumb .pt-meta{flex:1;min-width:0;padding:6px 8px 6px 0}
+.pool-grid.list .pool-thumb .pt-dur{display:none}
 
 /* clip inspector */
 #clipInsBody .slider-row{margin:8px 0}

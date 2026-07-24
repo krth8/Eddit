@@ -301,6 +301,24 @@ export async function ensureStrip(m) {
   } finally { m._stripBusy = false; }
 }
 
+// Default card thumb: the MIDDLE frame of the hover filmstrip when it exists —
+// a mid-shot frame represents the clip far better than a first-frame poster.
+// Falls back to the poster until the strip is built.
+export function thumbStyle(m) {
+  if (m.strip) {
+    const pos = (Math.floor(STRIP_FRAMES / 2) / (STRIP_FRAMES - 1) * 100).toFixed(2);
+    return { image: `url(${m.strip})`, size: (STRIP_FRAMES * 100) + '% 100%', position: pos + '% 50%' };
+  }
+  if (m.thumb) return { image: `url(${m.thumb})`, size: '', position: '' };
+  return null;
+}
+export function applyThumbStyle(elm, m) {
+  const t = thumbStyle(m);
+  elm.style.backgroundImage = t ? t.image : '';
+  elm.style.backgroundSize = t ? t.size : '';
+  elm.style.backgroundPosition = t ? t.position : '';
+}
+
 export function wireHoverScrub(m, tb) {
   if (!canHoverScrub) return;
   tb.addEventListener('pointerenter', (e) => {
@@ -369,8 +387,8 @@ export function updateCard(m, card) {
     setTimeout(() => card.classList.remove('fresh'), 1500);
   }
   const tb = card.querySelector('.thumbbox');
-  tb.classList.toggle('nothumb', !m.thumb);
-  tb.style.backgroundImage = m.thumb ? `url(${m.thumb})` : '';
+  tb.classList.toggle('nothumb', !m.thumb && !m.strip);
+  applyThumbStyle(tb, m);
   // per-clip proxy progress bar (replaces the spinner while building)
   const pbar = card.querySelector('.card-prog');
   if (pbar) {
