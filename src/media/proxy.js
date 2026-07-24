@@ -35,6 +35,50 @@ function mkEncoder(Mux, pw, ph, framerate) {
 }
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 
+// Background-safe analysis of an all-intra H.264 proxy: demux + WebCodecs
+// decode of N evenly spaced frames → filmstrip sprite, poster thumb, dims and
+// duration. The <video>-based capture paths (probe/makeStrip) need a VISIBLE
+// tab to present frames — in a hidden tab they yield black or time out. This
+// path decodes off-screen, so thumbs land even when conversions finish while
+// the user is on another tab.
+const blobToDataURL = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
+
+export async function analyzeProxy(blob, { frames = 10, fw = 160, thumbW = 320 } = {}) {
+  const dem = await demux(blob);
+  const out = { width: dem.width || 0, height: dem.height || 0, duration: dem.duration || 0, thumb: null, strip: null };
+  if (!dem.samples.length || !('VideoDecoder' in window) || !out.width) return out;
+  const sup = await VideoDecoder.isConfigSupported({ codec: dem.codec, description: dem.description }).catch(() => ({ supported: false }));
+  if (!sup.supported) return out;
+  const N = Math.min(frames, dem.samples.length);
+  const picks = [...Array(N)].map((_, i) => Math.min(dem.samples.length - 1, Math.floor((i + 0.5) / N * dem.samples.length)));
+  const fh = Math.max(2, Math.round(fw * out.height / out.width));
+  const stripCan = new OffscreenCanvas(fw * N, fh);
+  const scx = stripCan.getContext('2d');
+  const th = Math.max(2, Math.round(thumbW * out.height / out.width));
+  const thumbCan = new OffscreenCanvas(thumbW, th);
+  let slot = 0, err = null;
+  const dec = new VideoDecoder({
+    output: (f) => {
+      try {
+        scx.drawImage(f, slot * fw, 0, fw, fh);
+        if (slot === Math.floor(N / 2)) thumbCan.getContext('2d').drawImage(f, 0, 0, thumbW, th);
+      } catch (e) { err = e; }
+      slot++;
+      f.close();
+    },
+    error: (e) => { err = e; },
+  });
+  dec.configure({ codec: dem.codec, description: dem.description });
+  // all-intra proxy: every sample is a key frame, so sparse picks decode clean
+  for (const i of picks) dec.decode(toChunk(dem.samples[i], dem.timescale));
+  await dec.flush().catch((e) => { err = err || e; });
+  try { dec.close(); } catch {}
+  if (err || !slot) return out;
+  out.strip = await blobToDataURL(await stripCan.convertToBlob({ type: 'image/jpeg', quality: 0.6 }));
+  out.thumb = await blobToDataURL(await thumbCan.convertToBlob({ type: 'image/jpeg', quality: 0.7 }));
+  return out;
+}
+
 export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl) {
   const Mux = window.Mp4Muxer;
   const canEncode = ('VideoEncoder' in window) && !!Mux;

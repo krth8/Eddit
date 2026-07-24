@@ -2,7 +2,7 @@
 import { state, addMedia, getMedia, appendClip, bus } from '../state.js';
 import { el, $$, fmtShort, fmtTC, toast, uid, clamp } from '../util.js';
 import { probe, makeStrip } from '../media/probe.js';
-import { makeProxy, codecSupport } from '../media/proxy.js';
+import { makeProxy, codecSupport, analyzeProxy } from '../media/proxy.js';
 import { demux } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
@@ -233,16 +233,27 @@ async function runQueue() {
         if (m.removed) continue;
         m.proxyUrl = res.url; m.proxyBlob = res.blob; m.proxyW = res.width; m.proxyH = res.height;
         m.proxyKey = key; m.proxyReady = true; m.proxyStatus = 'ready'; m.proxyMethod = res.method; m.proxyError = null;
-        // originals <video> can't decode have no poster/dims/duration — adopt
-        // them off the H.264 proxy (ffmpeg-tier clips arrive here with 0×0)
-        if ((!m.thumb || !m.width || !m.duration) && res.blob) {
+        // adopt poster/strip/dims/duration off the H.264 proxy via WebCodecs —
+        // works in HIDDEN tabs too (the <video>-based probe needs a visible
+        // tab to present frames, so thumbs used to go missing when conversions
+        // finished in the background)
+        if ((!m.thumb || !m.strip || !m.width || !m.duration) && res.blob) {
           try {
-            const pm = await probe(res.blob);
-            if (!m.thumb && pm.thumb) m.thumb = pm.thumb;
-            if (!m.width && pm.width) { m.width = pm.width; m.height = pm.height; }
-            if (!m.duration && pm.duration) m.duration = pm.duration;
-            if (pm.url) URL.revokeObjectURL(pm.url);
+            const a = await analyzeProxy(res.blob);
+            if (!m.width && a.width) { m.width = a.width; m.height = a.height; }
+            if (!m.duration && a.duration) m.duration = a.duration;
+            if (!m.thumb && a.thumb) m.thumb = a.thumb;
+            if (!m.strip && a.strip) m.strip = a.strip;
           } catch {}
+          if (!m.thumb) {   // last resort: <video> probe (visible tabs only)
+            try {
+              const pm = await probe(res.blob);
+              if (pm.thumb) m.thumb = pm.thumb;
+              if (!m.width && pm.width) { m.width = pm.width; m.height = pm.height; }
+              if (!m.duration && pm.duration) m.duration = pm.duration;
+              if (pm.url) URL.revokeObjectURL(pm.url);
+            } catch {}
+          }
         }
         withTimeout(saveProxy(key, res.blob), 8000, 'opfs-save').catch(() => {}); // fire-and-forget
         // autosave NOW so proxyKey survives a hard stop — without this the key
@@ -293,9 +304,22 @@ let scrubV = null;
 export async function ensureStrip(m) {
   if (m.strip || m._stripBusy) return;
   const src = m.proxyBlob || ((m.playable && m.file) ? m.file : null);
-  if (!src || !m.duration) return;
+  if (!src) return;
   m._stripBusy = true;
   try {
+    // WebCodecs path first when a proxy exists — background-tab safe
+    if (m.proxyBlob) {
+      try {
+        const a = await analyzeProxy(m.proxyBlob);
+        if (a.strip) {
+          m.strip = a.strip;
+          if (!m.thumb && a.thumb) m.thumb = a.thumb;
+          bus.emit('media:changed');
+          return;
+        }
+      } catch {}
+    }
+    if (!m.duration) return;
     const s = await makeStrip(src, STRIP_FRAMES);
     if (s) { m.strip = s; bus.emit('media:changed'); }
   } finally { m._stripBusy = false; }
