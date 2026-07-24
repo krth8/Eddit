@@ -810,6 +810,18 @@ input[type=range]{accent-color:var(--accent)}
 .pp-row label{font-size:12px;color:var(--text-secondary)}
 .pp-row select{width:104px}
 
+/* ── tablet-class devices (data-tablet): the narrow Edit layout keeps
+   DESKTOP sizing — phone compaction is for phones ── */
+:root[data-tablet][data-layout="narrow"] .main-tab{padding:7px 16px}
+:root[data-tablet][data-layout="narrow"] .timeline{padding:10px 16px 14px}
+:root[data-tablet][data-layout="narrow"] .grid{padding:16px 18px}
+:root[data-tablet][data-layout="narrow"] .brand-name,
+:root[data-tablet][data-layout="wide"] .brand-name{display:inline}
+:root[data-tablet][data-layout="narrow"] .pj-lbl,
+:root[data-tablet][data-layout="wide"] .pj-lbl{display:inline}
+:root[data-tablet][data-layout="narrow"] .main-tabs{max-width:calc(100vw - 260px)}
+:root[data-tablet][data-layout="narrow"][data-orient="portrait"] .pv-stage{min-height:42vh}
+
 /* ── FX accordion: each effect folds to its header; carets show state ── */
 #csFx .card[data-fx] h3{cursor:pointer;display:flex;align-items:center;gap:7px;user-select:none}
 #csFx .card[data-fx] h3::after{content:"▾";font-size:10px;color:var(--text-muted);transition:transform .18s;margin-left:auto}

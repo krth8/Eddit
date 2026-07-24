@@ -20,6 +20,9 @@ export function initLayout() {
     const w = window.innerWidth, h = window.innerHeight;
     const short = Math.min(w, h);
     const portrait = h >= w;
+    // tablet-class device (11" tablets sit at 600-834 CSS px on the short
+    // side depending on DPR; phones stop around 480). Stable across rotation.
+    root.toggleAttribute('data-tablet', touch && short >= 600);
     // Big tablets (short side >= 700 CSS px — iPad Air/Pro class) get the full
     // desktop layout with docked panels even in portrait; data-touch keeps the
     // fat touch sliders inside it. The docked layout fits from ~760px width.
