@@ -4,14 +4,16 @@
 // screen size — CSS reacts to the attributes.
 export function initLayout() {
   const root = document.documentElement;
-  // touch UI only when the PRIMARY pointer is coarse (phone/tablet). A device
-  // that ALSO has a fine pointer — Chromebook with trackpad, iPad with Magic
-  // Keyboard — keeps the compact desktop controls (ChromeOS convertibles often
-  // report coarse as primary even in clamshell). Exception: phone-sized
-  // screens always get the touch UI, so a stylus phone (S Pen) isn't demoted.
+  // touch UI when the PRIMARY pointer is coarse (phone/tablet) and that
+  // pointer can't hover. The old heuristic demoted any device that ALSO had a
+  // fine pointer (meant for ChromeOS convertibles in clamshell) — but a
+  // tablet with a PAIRED STYLUS reports any-pointer:fine too, and lost the
+  // whole touch layer. (hover: hover) reflects the primary pointer only:
+  // a touchscreen stays hover:none no matter what pens are paired, while a
+  // clamshell's touchpad reports hover:hover and keeps desktop controls.
   const coarse = matchMedia('(pointer: coarse)').matches;
-  const anyFine = matchMedia('(any-pointer: fine)').matches;
-  const touch = coarse && (!anyFine || Math.min(window.innerWidth, window.innerHeight) < 560);
+  const hoverPrim = matchMedia('(hover: hover)').matches;
+  const touch = coarse && (!hoverPrim || Math.min(window.innerWidth, window.innerHeight) < 560);
   root.toggleAttribute('data-touch', touch);
   // running as an installed PWA?
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
