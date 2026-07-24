@@ -185,10 +185,14 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP)
     // files mean big frames. (A separate ffmpeg header-probe exec was tried
     // and removed: every exec EXIT is a deadlock opportunity in the MT core.)
     const mp = (hintMP || 0) / 1e6;
-    let threads = _mt ? Math.max(2, Math.min(16, navigator.hardwareConcurrency || 4)) : 1;
+    // HARD CAP 4: the wasm pthread pool is small, and asking for many threads
+    // (decoder AND encoder each take a set) deadlocks a fresh core at thread
+    // SPAWN — stuck at 0% right after "Stream mapping", before the first
+    // frame. wasm x264 tops out around 4 threads anyway. Big frames still run
+    // narrower so the per-thread frame buffers fit the heap.
+    let threads = _mt ? 4 : 1;
     if (lowMem) threads = 1;
-    else if (mp > 12 || (!mp && file.size > 150e6)) threads = Math.min(threads, 2);   // 5K/6K+
-    else if (mp > 8 || (!mp && file.size > 80e6)) threads = Math.min(threads, 4);     // 4K
+    else if (mp > 8 || (!mp && file.size > 150e6)) threads = 2;   // 4K/5K/6K+
     const code = await ff.exec([
       '-threads', String(threads),
       // decoder shortcuts: skip the in-loop deblock filter and allow non-spec
