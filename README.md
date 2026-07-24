@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="icon.svg" width="96" alt="Eddit">
+  <img src="cover.jpg" width="100%" alt="Eddit running on desktop, tablet and phone">
 
 # Eddit
 
