@@ -7,7 +7,7 @@ import { demux } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut } from '../luts.js';
-import { ffmpegLoaded, ffmpegMultithread } from '../media/ffmpeg.js';
+import { ffmpegLoaded, ffmpegMultithread, abortTranscode } from '../media/ffmpeg.js';
 
 let engine = null;
 let caps = { decode: false, encode: false, hevc: false };
@@ -200,6 +200,8 @@ async function runQueue() {
           continue;
         }
         m.proxyProgress = 0;
+        const ctl = { cancelled: false, ffmpeg: false };
+        m._proxyCtl = ctl;
         const res = await makeProxy(m.file, targetH,
           (p) => {
             prog.firstElementChild.style.width = (p * 100).toFixed(0) + '%';
@@ -208,7 +210,8 @@ async function runQueue() {
             if (bar) bar.style.width = Math.round(p * 100) + '%';
           },
           (text, pct) => ffUI(text, pct),
-          (m.width || 0) * (m.height || 0));
+          (m.width || 0) * (m.height || 0), ctl);
+        m._proxyCtl = null;
         if (m.removed) continue;
         m.proxyUrl = res.url; m.proxyBlob = res.blob; m.proxyW = res.width; m.proxyH = res.height;
         m.proxyKey = key; m.proxyReady = true; m.proxyStatus = 'ready'; m.proxyMethod = res.method; m.proxyError = null;
@@ -231,6 +234,8 @@ async function runQueue() {
         ensureStrip(m);
         if (res.method === 'video') toast(`Proxy built for ${m.name} via <video> fallback`, false, 3500);
       } catch (e) {
+        m._proxyCtl = null;
+        if (m.removed) continue;   // deleted mid-convert — cancellation, not failure
         m.proxyStatus = 'failed'; m.proxyError = e.message || String(e);
         console.warn('proxy failed', m.name, e);
         toast(`Proxy failed — ${m.name}: ${m.proxyError}`, true, 6500);
@@ -519,6 +524,12 @@ export async function restore(proj) {
 function removeMedia(id) {
   const m = getMedia(id); if (!m) return;
   m.removed = true;
+  // abort an IN-FLIGHT conversion — without this the transcode kept running
+  // under the hood after the clip left the pool
+  if (m._proxyCtl) {
+    m._proxyCtl.cancelled = true;
+    if (m._proxyCtl.ffmpeg) abortTranscode();
+  }
   // drop the clip(s) that reference it (and their grades)
   for (const tr of [...state.tracks.video, ...state.tracks.audio]) {
     for (let i = tr.clips.length - 1; i >= 0; i--) {

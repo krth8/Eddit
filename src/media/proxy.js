@@ -35,7 +35,7 @@ function mkEncoder(Mux, pw, ph, framerate) {
 }
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 
-export async function makeProxy(file, targetH, onProgress, onStatus, hintMP) {
+export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl) {
   const Mux = window.Mp4Muxer;
   const canEncode = ('VideoEncoder' in window) && !!Mux;
   const errs = [];
@@ -54,19 +54,22 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP) {
 
   // tier 1: WebCodecs decode
   if (canEncode && dem && decodeSupported) {
-    try { return await proxyViaWebCodecs(Mux, dem, targetH, onProgress); }
+    try { return await proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl); }
     catch (e) { errs.push('webcodecs: ' + (e?.message || e)); }
   }
+  if (ctl?.cancelled) throw new Error('cancelled');
   // tier 2: <video> element (OS-backed decode)
   if (canEncode) {
-    try { return await proxyViaVideo(Mux, file, targetH, fps, onProgress); }
+    try { return await proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl); }
     catch (e) { errs.push('video: ' + (e?.message || e)); }
   }
+  if (ctl?.cancelled) throw new Error('cancelled');
   // tier 3: ffmpeg.wasm software decode+encode — the universal last resort
   try {
     onStatus?.('Converting with ffmpeg.wasm…');
+    if (ctl) ctl.ffmpeg = true;   // deletion now needs an engine abort
     const blob = await transcodeToProxy(file, targetH, onProgress, onStatus,
-      dem?.width ? dem.width * dem.height : (hintMP || 0));
+      dem?.width ? dem.width * dem.height : (hintMP || 0), ctl);
     let w = 0, h = 0;
     try { const pm = await probe(blob); w = pm.width || 0; h = pm.height || 0; if (pm.url) URL.revokeObjectURL(pm.url); } catch {}
     return { url: URL.createObjectURL(blob), blob, width: w, height: h, size: blob.size, method: 'ffmpeg' };
@@ -75,7 +78,7 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP) {
   throw new Error(errs.join(' | ') || 'no available decode path');
 }
 
-async function proxyViaWebCodecs(Mux, dem, targetH, onProgress) {
+async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl) {
   const { codec, description, samples, timescale, width, height, fps } = dem;
   const framerate = Math.min(60, Math.max(1, Math.round(fps || 30)));
   // Bake the container's display rotation into the proxy — the decoder outputs
@@ -116,7 +119,11 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress) {
     error: (e) => { decErr = e; },
   });
   decoder.configure({ codec, description });
-  for (const s of samples) { if (decErr) break; decoder.decode(toChunk(s, timescale)); }
+  for (const s of samples) {
+    if (decErr) break;
+    if (ctl?.cancelled) { decErr = new Error('cancelled'); break; }
+    decoder.decode(toChunk(s, timescale));
+  }
   await decoder.flush().catch((e) => { decErr = decErr || e; });
   if (decErr) { try { decoder.close(); encoder.close(); } catch {} throw new Error('decode error: ' + (decErr.message || decErr)); }
   await encoder.flush();
@@ -127,7 +134,7 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress) {
 }
 
 // OS-backed decode via a <video> element -> capture frames -> H.264 encode.
-async function proxyViaVideo(Mux, file, targetH, fps, onProgress) {
+async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
   const url = URL.createObjectURL(file);
   const v = document.createElement('video');
   v.muted = true; v.playsInline = true; v.preload = 'auto';
@@ -158,6 +165,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress) {
         v.onerror = () => done(reject, new Error('video decode error during capture'));
         v.onended = () => done(resolve);
         const step = (now, meta) => {
+          if (ctl?.cancelled) { done(reject, new Error('cancelled')); return; }
           try {
             cx.drawImage(v, 0, 0, pw, ph);
             const ts = Math.max(last + 1, Math.round((meta.mediaTime || v.currentTime) * 1e6)); last = ts;
@@ -174,6 +182,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress) {
     } else {
       const total = Math.max(1, Math.round(dur * fr));
       for (let f = 0; f < total; f++) {
+        if (ctl?.cancelled) throw new Error('cancelled');
         v.currentTime = Math.min(dur, f / fr);
         await withTO(once(v, 'seeked'), 8000, 'seek timed out');
         cx.drawImage(v, 0, 0, pw, ph);

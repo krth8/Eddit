@@ -95,8 +95,11 @@ export async function getFFmpeg(onStatus) {
 // Log->Rec.709 transform/LUT still applies.
 let _jobs = 0;   // conversions since the current core was loaded
 function _recycle() { try { _ff?.terminate?.(); } catch {} _ff = null; _loading = null; _jobs = 0; }
+// abort the in-flight conversion (e.g. its media was deleted): terminating the
+// core makes exec reject; the next job simply reloads a fresh core
+export function abortTranscode() { _recycle(); }
 
-export async function transcodeToProxy(file, targetH, onProgress, onStatus, hintMP) {
+export async function transcodeToProxy(file, targetH, onProgress, onStatus, hintMP, ctl) {
   // The wasm heap only ever GROWS — a long proxy queue (dozens of 6K clips)
   // slowly fragments it until a conversion aborts mid-queue. Recycling the
   // engine every few jobs resets the heap for ~2s of reload time.
@@ -106,6 +109,7 @@ export async function transcodeToProxy(file, targetH, onProgress, onStatus, hint
     _jobs++;
     return out;
   } catch (e) {
+    if (ctl?.cancelled) throw new Error('cancelled');   // deleted mid-convert — no retry
     // A wasm OOM (e.g. 6K ProRes: 85MB frames × decoder buffers × x264
     // threads) ABORTS the worker, leaving the core unusable — reload a
     // single-threaded core and retry once with minimal memory. Threads are the
