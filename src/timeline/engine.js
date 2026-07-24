@@ -360,25 +360,33 @@ export class Engine {
   scrub(t) {
     const dur = timelineDuration();
     state.playhead = Math.max(0, Math.min(dur, t));
+    // generation token: crossing between frame-server territory (plain video)
+    // and raf territory (titles / composites) mid-scrub left the async frame
+    // drain racing the raf loop — stale video frames overdrew the composite
+    // and the picture flickered between the two renders
+    this._scrubGen = (this._scrubGen || 0) + 1;
     const seg = programAt(state.playhead);
-    if (!seg) { this._drawBlack(); this.onTick?.(state.playhead, dur); return; }
+    if (!seg) { this._latestReq = null; this._drawBlack(); this.onTick?.(state.playhead, dur); return; }
     const src = srcTimeAt(seg, state.playhead);
     const media = getMedia(seg.clip.mediaId);
-    if (this.frameServer.supported && media?.proxyReady && media?.proxyBlob) {
-      this._stopVideoRaf(); this._reqFrame(media, src, seg.clip);
+    const composite = populatedVideoTracks() >= 2 && layersAt(state.playhead).length >= 2;
+    if (!composite && this.frameServer.supported && media?.proxyReady && media?.proxyBlob) {
+      this._stopVideoRaf(); this._reqFrame(media, src, seg.clip, this._scrubGen);
     } else {
+      this._latestReq = null;   // kill any queued frame-server draw
       this._ensureVideoRaf(); this._sizeCanvas(seg.clip); this._loadInto(this.cur, seg, src);
     }
     this.onTick?.(state.playhead, dur);
   }
-  _reqFrame(media, srcTime, clip) {
-    this._latestReq = { media, srcTime, clip };
+  _reqFrame(media, srcTime, clip, gen) {
+    this._latestReq = { media, srcTime, clip, gen };
     if (this._frameBusy) return; this._frameBusy = true;
     (async () => {
       while (this._latestReq) {
-        const { media, srcTime, clip } = this._latestReq; this._latestReq = null;
+        const { media, srcTime, clip, gen } = this._latestReq; this._latestReq = null;
         try {
           const bmp = await this.frameServer.frameAt(media, srcTime);
+          if (gen !== this._scrubGen) continue;   // a newer scrub took over
           // the canvas STAYS at project resolution — resizing it to the proxy
           // buffer here made the player flip sizes between scrubbing and
           // playback (worst at title clips, which render at project size)

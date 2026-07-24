@@ -97,8 +97,8 @@ export async function initMedia(eng) {
   el('removeMediaBtn').onclick = () => { if (state.selectedMediaId) removeMedia(state.selectedMediaId); };
 
   bus.on('media:changed', renderGrid);
-  // fix strip-as-thumb entries from older builds as projects load
-  bus.on('project:restored', () => { for (const m of state.media) healStripThumb(m); });
+  // fix crossed thumb/strip entries from older builds as projects load
+  bus.on('project:restored', () => { for (const m of state.media) classifyThumbs(m); });
   renderGrid();
 }
 
@@ -426,26 +426,44 @@ function setThumbLook(name) {
   bus.emit('thumbs:baked');   // pool falls back to originals meanwhile
 }
 
-// ---- legacy heal: some earlier builds persisted the 10-frame filmstrip
-// SPRITE as m.thumb, which renders as a squeezed striped bar in the pools.
-// Detect ultra-wide thumbs, reclassify them as the strip, and cut a proper
-// poster out of the sprite's middle frame. ----
-async function healStripThumb(m) {
-  if (!m.thumb || m._healBusy) return;
-  m._healBusy = true;
+// ---- thumb/strip self-heal: older builds crossed the fields — a filmstrip
+// SPRITE saved as m.thumb (renders as a squeezed striped bar) or a plain
+// POSTER saved as m.strip (the 1000% strip-CSS blows it up into smeared
+// bands). Classify both by ACTUAL image geometry once per clip and repair. ----
+const imgOf = (src) => new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+
+async function classifyThumbs(m) {
+  if (m._thumbClass || (!m.thumb && !m.strip)) return;
+  m._thumbClass = true;
   try {
-    const img = new Image();
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = m.thumb; });
-    if (img.width / Math.max(1, img.height) <= 6) return;   // normal poster
-    if (!m.strip) m.strip = m.thumb;
-    const fw = img.width / STRIP_FRAMES;
-    const c = document.createElement('canvas');
-    c.width = 320; c.height = Math.max(2, Math.round(320 * img.height / fw));
-    c.getContext('2d').drawImage(img, Math.floor(STRIP_FRAMES / 2) * fw, 0, fw, img.height, 0, 0, c.width, c.height);
-    m.thumb = c.toDataURL('image/jpeg', 0.7);
-    updateCard(m);
-    bus.emit('thumbs:baked');
-  } catch {} finally { m._healBusy = false; }
+    let changed = false;
+    if (m.strip) {
+      const im = await imgOf(m.strip);
+      if (!im || im.width / Math.max(1, im.height) < 6) {   // not sprite-shaped
+        if (!m.thumb && im) m.thumb = m.strip;
+        m.strip = null;
+        changed = true;
+      }
+    }
+    if (m.thumb) {
+      const im = await imgOf(m.thumb);
+      if (im && im.width / Math.max(1, im.height) > 6) {    // sprite stored as poster
+        if (!m.strip) m.strip = m.thumb;
+        const fw = im.width / STRIP_FRAMES;
+        const c = document.createElement('canvas');
+        c.width = 320; c.height = Math.max(2, Math.round(320 * im.height / fw));
+        c.getContext('2d').drawImage(im, Math.floor(STRIP_FRAMES / 2) * fw, 0, fw, im.height, 0, 0, c.width, c.height);
+        m.thumb = c.toDataURL('image/jpeg', 0.7);
+        changed = true;
+      } else if (!im) { m.thumb = null; changed = true; }
+    }
+    if (changed) {
+      updateCard(m);
+      bus.emit('thumbs:baked');
+      if (!m.strip) ensureStrip(m);   // rebuild a real sprite (WebCodecs path)
+      bus.emit('media:changed');      // persist the repair
+    }
+  } catch {}
 }
 
 // Default card thumb: the MIDDLE frame of the hover filmstrip when it exists —
@@ -539,7 +557,8 @@ export function updateCard(m, card) {
   const tb = card.querySelector('.thumbbox');
   tb.classList.toggle('nothumb', !m.thumb && !m.strip);
   applyThumbStyle(tb, m);
-  bakeOne(m);   // no-op unless a thumbnail look is active and unbaked
+  bakeOne(m);         // no-op unless a thumbnail look is active and unbaked
+  classifyThumbs(m);  // one-time geometry check heals crossed thumb/strip data
   // per-clip proxy progress bar (replaces the spinner while building)
   const pbar = card.querySelector('.card-prog');
   if (pbar) {
