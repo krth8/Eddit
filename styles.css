@@ -109,7 +109,9 @@ main{flex:1;min-height:0;position:relative}
   background:rgba(0,0,0,.62);color:#fff;border-radius:50%;font-size:12px;opacity:0;transition:var(--tf);cursor:pointer}
 .clip:hover .clip-del{opacity:1}
 .clip-del:hover{background:var(--danger);color:#1c1c1e}
-.clip .thumbbox{position:relative;height:var(--th);background:#0d0d10;overflow:hidden;
+/* fixed 16:9 box — a slider-driven width with fixed height changed the box
+   aspect with zoom, which broke the mid-strip crop (slices of the sprite) */
+.clip .thumbbox{position:relative;aspect-ratio:16/9;background:#0d0d10;overflow:hidden;
   background-size:cover;background-position:center;transition:filter .7s ease}
 /* per-clip proxy states — clips arrive greyed, then pop to colour when the proxy lands */
 .clip.proxy-pending .thumbbox{filter:grayscale(1) brightness(.5)}
@@ -799,6 +801,9 @@ input[type=range]{accent-color:var(--accent)}
 :root[data-layout="narrow"][data-orient="landscape"] #cToolsBtn{display:none}
 :root[data-layout="narrow"][data-orient="landscape"][data-tab="color"] #drawerBtn{display:none}
 :root[data-layout="narrow"][data-tab="color"] #drawerBtn{display:none}
+.preset-del{opacity:.45;padding:0 5px;flex:none}
+.lut-item:hover .preset-del{opacity:1;color:var(--danger,#ff7a7a)}
+
 /* ── project settings popover (timeline ⚙) ── */
 .tl-proj{position:relative;display:flex}
 .proj-pop{display:none;position:absolute;top:calc(100% + 10px);right:-6px;z-index:80;min-width:210px;

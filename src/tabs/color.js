@@ -3,7 +3,8 @@
 import { state, defaultGrade, isGraded, videoProgram, programAt, bus } from '../state.js';
 import { el, $$, clamp, toast, fmtShort, curveEval } from '../util.js';
 import { parseCube } from '../gpu/lut.js';
-import { LUT_CATEGORIES, findLut } from '../luts.js';
+import { LUT_CATEGORIES, findLut, addUserLut, USER_LUTS } from '../luts.js';
+import { kvGet, kvSet } from '../store.js';
 import { updateFills, TOUCH_GAIN } from '../slider.js';
 import { toggleSheet } from '../layout.js';
 
@@ -85,12 +86,30 @@ export function initColor(eng) {
     const f = e.target.files[0]; if (!f) return;
     try {
       const lut = parseCube(await f.text());
-      const g = grade(); if (!g) { toast('Select a clip first', true); return; }
-      g.lut = lut; g.lutName = f.name.replace(/\.cube$/i, '');
-      renderLutList(); commit(); toast('LUT loaded: ' + g.lutName);
+      const name = f.name.replace(/\.cube$/i, '');
+      // register + persist: loaded LUTs become part of the library ("My LUTs")
+      // and are usable everywhere, including as a thumbnail look
+      addUserLut(name, lut);
+      persistUserLuts();
+      bus.emit('luts:changed');
+      const g = grade();
+      if (g) { g.lut = lut; g.lutName = name; commit(); }
+      renderLutList();
+      toast('LUT added to My LUTs: ' + name);
     } catch (err) { toast('LUT error: ' + err.message, true); }
     e.target.value = '';
   };
+  // restore persisted user LUTs + grade presets
+  (async () => {
+    try {
+      const saved = (await kvGet('userLuts')) || [];
+      for (const u of saved) if (u?.name && u?.lut?.size) addUserLut(u.name, u.lut);
+      if (saved.length) { bus.emit('luts:changed'); renderLutList(); }
+    } catch {}
+    try { gradePresets = (await kvGet('gradePresets')) || []; } catch {}
+    renderPresets();
+  })();
+  if (el('presetSave')) el('presetSave').onclick = savePreset;
 
   el('cResetGrade').onclick = () => {
     if (!state.selectedClipId) return;
@@ -366,8 +385,52 @@ function drawCurve() {
   for (const p of pts) { cx.beginPath(); cx.arc(p.x * W, (1 - p.y) * H, 4 * sc, 0, 7); cx.fill(); }
 }
 
+// ---- user LUT persistence + grade presets ----
+function persistUserLuts() {
+  kvSet('userLuts', USER_LUTS.luts.map((l) => { try { return { name: l.name, lut: l.get() }; } catch { return null; } }).filter(Boolean)).catch(() => {});
+}
+
+let gradePresets = [];
+function savePreset() {
+  const g = grade(); if (!g) return toast('Select a clip first', true);
+  const name = (prompt('Preset name', 'My look') || '').trim();
+  if (!name) return;
+  const snap = structuredClone({ ...g, lut: null });   // lutName re-resolves on apply
+  const i = gradePresets.findIndex((p) => p.name === name);
+  if (i >= 0) gradePresets[i] = { name, grade: snap }; else gradePresets.push({ name, grade: snap });
+  kvSet('gradePresets', gradePresets).catch(() => {});
+  renderPresets();
+  toast('Preset saved: ' + name);
+}
+function applyPreset(p) {
+  if (!state.selectedClipId || !grade()) return toast('Select a clip first', true);
+  const ng = structuredClone(p.grade);
+  if (ng.lutName) { const l = findLut(ng.lutName); if (l) { try { ng.lut = l.get(); } catch {} } }
+  state.grades[state.selectedClipId] = ng;
+  syncUI(); commit();
+  toast(`Preset "${p.name}" applied`);
+}
+function renderPresets() {
+  const box = el('presetList'); if (!box) return;
+  box.innerHTML = '';
+  if (!gradePresets.length) { box.innerHTML = '<div class="statline">Save a grade you like and apply it to any clip.</div>'; return; }
+  for (const p of gradePresets) {
+    const row = document.createElement('div');
+    row.className = 'lut-item';
+    row.innerHTML = `<span class="lsw" style="background:linear-gradient(90deg,#5fd598,#2ba7d8)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${p.name}</span><span class="preset-del" title="Delete preset">✕</span>`;
+    row.onclick = () => applyPreset(p);
+    row.querySelector('.preset-del').onclick = (e) => {
+      e.stopPropagation();
+      gradePresets = gradePresets.filter((x) => x !== p);
+      kvSet('gradePresets', gradePresets).catch(() => {});
+      renderPresets();
+    };
+    box.appendChild(row);
+  }
+}
+
 // ---- categorised LUT browser (Resolve-style folders) ----
-const openCats = new Set(['Conversion · Sony', 'Creative']);
+const openCats = new Set(['My LUTs', 'Conversion · Sony']);
 function renderLutList() {
   const list = el('lutList'); list.innerHTML = '';
   const g = grade();
@@ -383,6 +446,7 @@ function renderLutList() {
   if (g?.lut && g.lutName && !findLut(g.lutName)) cats.unshift({ name: 'Custom', luts: [{ name: g.lutName, swatch: 'linear-gradient(90deg,#5fd598,#8aa2ff)', get: () => g.lut }] });
 
   for (const cat of cats) {
+    if (!cat.luts.length) continue;   // e.g. "My LUTs" before anything is loaded
     const open = openCats.has(cat.name);
     const head = document.createElement('div');
     head.className = 'lut-cat';

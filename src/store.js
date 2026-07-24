@@ -138,6 +138,10 @@ export async function deleteProject(id) {
 }
 export async function clearProject() { const id = await idbGet('activeId'); if (id) return idbSet('project:' + id, null); }
 
+// generic kv access for app-level persistence (user LUTs, grade presets, …)
+export const kvGet = (k) => idbGet(k);
+export const kvSet = (k, v) => idbSet(k, v);
+
 // ---- OPFS proxy cache ----
 export function proxyKey(file, proxyH) { return `${(file?.name || 'clip').replace(/[^\w.-]/g, '_')}__${file?.size || 0}__${proxyH}.mp4`; }
 

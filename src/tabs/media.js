@@ -71,15 +71,22 @@ export async function initMedia(eng) {
   }
   const tl = el('thumbLook');
   if (tl) {
-    tl.innerHTML = '<option value="">Thumb look: none</option>';
-    for (const cat of LUT_CATEGORIES) {
-      const og = document.createElement('optgroup'); og.label = cat.name;
-      for (const it of cat.luts) { const o = document.createElement('option'); o.value = it.name; o.textContent = it.name; og.appendChild(o); }
-      tl.appendChild(og);
-    }
-    tl.value = thumbLook && findLut(thumbLook) ? thumbLook : '';
+    const rebuild = () => {
+      tl.innerHTML = '<option value="">Thumb look: none</option>';
+      for (const cat of LUT_CATEGORIES) {
+        if (!cat.luts.length) continue;
+        const og = document.createElement('optgroup'); og.label = cat.name;
+        for (const it of cat.luts) { const o = document.createElement('option'); o.value = it.name; o.textContent = it.name; og.appendChild(o); }
+        tl.appendChild(og);
+      }
+      tl.value = thumbLook && findLut(thumbLook) ? thumbLook : '';
+    };
+    rebuild();
     if (tl.value) setThumbLook(tl.value);   // resolve the LUT for the saved pick
     tl.onchange = () => setThumbLook(tl.value);
+    // user .cube loads register asynchronously — refresh the picker (and
+    // resolve a saved pick that just became available)
+    bus.on('luts:changed', () => { rebuild(); if (tl.value && !lookLut) setThumbLook(tl.value); });
   }
 
   // OPFS proxy-cache size + clear (proxyBytes existed but was never surfaced)
