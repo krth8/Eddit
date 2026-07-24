@@ -474,8 +474,22 @@ export function thumbStyle(m) {
   const strip = (lk && lk.strip) || m.strip;
   const thumb = (lk && lk.thumb) || m.thumb;
   if (strip) {
-    const pos = (Math.floor(STRIP_FRAMES / 2) / (STRIP_FRAMES - 1) * 100).toFixed(2);
-    return { image: `url(${strip})`, size: (STRIP_FRAMES * 100) + '% 100%', position: pos + '% 50%' };
+    // COVER-crop the middle sprite frame into the 16:9 box instead of
+    // stretching it (`N00% 100%` distorted anything that isn't 16:9 — 2.56:1
+    // cine footage rendered visibly squashed).
+    const N = STRIP_FRAMES, mid = Math.floor(N / 2);
+    const ar = (m.width && m.height) ? m.width / m.height : 16 / 9;
+    const box = 16 / 9;
+    if (ar >= box) {
+      // wide source: frame height fills the box, sides crop. k = box widths
+      // per frame width; position maths in frame-width units.
+      const k = Math.min(1, box / ar);
+      const p = ((mid + (1 - k) / 2) / (N - k) * 100).toFixed(2);
+      return { image: `url(${strip})`, size: 'auto 100%', position: p + '% 50%' };
+    }
+    // tall source: frame width fills the box, top/bottom crop
+    const p = (mid / (N - 1) * 100).toFixed(2);
+    return { image: `url(${strip})`, size: (N * 100) + '% auto', position: p + '% 50%' };
   }
   if (thumb) return { image: `url(${thumb})`, size: '', position: '' };
   return null;
