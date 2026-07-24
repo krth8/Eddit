@@ -19,22 +19,27 @@ export function initLayout() {
   const apply = () => {
     const w = window.innerWidth, h = window.innerHeight;
     const short = Math.min(w, h);
+    const portrait = h >= w;
     // Big tablets (short side >= 700 CSS px — iPad Air/Pro class) get the full
     // desktop layout with docked panels even in portrait; data-touch keeps the
     // fat touch sliders inside it. The docked layout fits from ~760px width.
     const tabletWide = touch && short >= 700 && w >= 760;
+    // …EXCEPT the Edit tab in tablet portrait: editing wants the phone layout
+    // there (drawers + pan-scrub timeline with a centered playhead)
+    const tabletPortraitEdit = tabletWide && portrait && root.getAttribute('data-tab') === 'edit';
     // Phones in LANDSCAPE are often >= 900 CSS px wide, which would wrongly pick
     // the desktop layout. Treat any touch device whose SHORTER side is phone-sized
     // (< 560) as narrow too, so phone landscape gets the mobile split screen.
-    const narrow = !tabletWide && (w < 900 || (touch && short < 560));
+    const narrow = (!tabletWide && (w < 900 || (touch && short < 560))) || tabletPortraitEdit;
     root.setAttribute('data-layout', narrow ? 'narrow' : 'wide');
-    root.setAttribute('data-orient', window.innerHeight >= window.innerWidth ? 'portrait' : 'landscape');
+    root.setAttribute('data-orient', portrait ? 'portrait' : 'landscape');
     if (!narrow) closeSheet();
     // keep the stage push-up in sync if the sheet is open through a rotate/resize
     const open = document.querySelector('.sheet-open');
     if (open) requestAnimationFrame(() => { const h = open.getBoundingClientRect().height; if (h > 0) root.style.setProperty('--sheet-h', Math.round(h) + 'px'); });
   };
   apply();
+  _apply = apply;
   window.addEventListener('resize', apply);
   window.addEventListener('orientationchange', apply);
 
@@ -78,6 +83,9 @@ export function closeSheet() {
   document.documentElement.classList.remove('sheet-shown');
 }
 export function isNarrow() { return document.documentElement.getAttribute('data-layout') === 'narrow'; }
+// re-evaluate the layout (the tablet-portrait Edit tab flips narrow per tab)
+let _apply = null;
+export function relayout() { _apply?.(); }
 // open a specific sidebar as a sheet (e.g. the inspector on clip select)
 export function openSheet(sb) {
   if (!sb || !isNarrow()) return;

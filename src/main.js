@@ -6,7 +6,7 @@ import { Engine } from './timeline/engine.js';
 import { initMedia } from './tabs/media.js';
 import { saveProject } from './store.js';
 import { commit as histCommit, undo, redo, resetHistory, canUndo, canRedo } from './history.js';
-import { initLayout, openSheet, closeSheet } from './layout.js';
+import { initLayout, openSheet, closeSheet, relayout } from './layout.js';
 import { initProjects, bootBrowser } from './projects.js';
 import { initSliders } from './slider.js';
 import { initColor, syncUI as colorSync, renderStrip } from './tabs/color.js';
@@ -193,6 +193,7 @@ function setupTabs() {
     el(b.dataset.tab).classList.add('active');
     state.activeTab = b.dataset.tab;
     document.documentElement.setAttribute('data-tab', b.dataset.tab);
+    relayout();   // tablet portrait: the Edit tab flips to the phone layout
     const c = activeCanvas();
     if (c && engine) engine.setCanvas(c);
     if (b.dataset.tab === 'edit') { renderPool(); tlRender(); renderInspector(); }
