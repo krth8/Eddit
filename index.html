@@ -47,6 +47,14 @@
   </nav>
   <div class="hdr-right">
     <button id="drawerBtn" class="pill pill-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16M3 10h12"/></svg></button>
+    <div class="tl-proj" id="tlProjWrap">
+      <button class="pill pill-btn" id="tlProjBtn" title="Project settings — aspect, resolution, frame rate"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      <div class="proj-pop" id="tlProjPop">
+        <div class="pp-row"><label>Aspect</label><select id="pAspect"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select></div>
+        <div class="pp-row"><label>Resolution</label><select id="pRes"><option value="720">720p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
+        <div class="pp-row"><label>Frame rate</label><select id="pFps"><option value="24">24</option><option value="25">25</option><option value="30">30</option><option value="50">50</option><option value="60">60</option></select></div>
+      </div>
+    </div>
     <span id="buildTag" class="pill" style="font-variant-numeric:tabular-nums" title="Version"></span>
   </div>
 </header>
@@ -229,14 +237,6 @@
           </div>
           <div class="tl-right">
             <button class="tl-addbtn" id="toolAddClip" title="Add clips or tools — opens the Media / Toolbox panel"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
-            <div class="tl-proj" id="tlProjWrap">
-              <button class="tl-tool" id="tlProjBtn" title="Project settings — aspect, resolution, frame rate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-              <div class="proj-pop" id="tlProjPop">
-                <div class="pp-row"><label>Aspect</label><select id="pAspect"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select></div>
-                <div class="pp-row"><label>Resolution</label><select id="pRes"><option value="720">720p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
-                <div class="pp-row"><label>Frame rate</label><select id="pFps"><option value="24">24</option><option value="25">25</option><option value="30">30</option><option value="50">50</option><option value="60">60</option></select></div>
-              </div>
-            </div>
             <div class="slider-row tl-sld" data-noreset title="Master volume" id="tlVolRow">
               <label id="tlVolBtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg></label>
               <span class="vol-pop"><input type="range" id="tlMasterVol" min="0" max="1.5" step="0.01" value="1" data-default="1"></span>

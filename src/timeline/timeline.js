@@ -51,7 +51,7 @@ export function initTimeline(eng) {
   // clip moves a clip; touch keeps the pan-scrub gesture handled elsewhere
   el('tlLanes').addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'touch' && isTouchUI()) return;
-    if (e.target.closest('.tl-clip')) return;
+    if (e.target.closest('.tl-clip') || e.target.closest('.tl-addrow')) return;   // +/− rows are buttons, not scrub area
     beginScrub(e);
   });
 
@@ -112,7 +112,7 @@ export function initTimeline(eng) {
   let pinch = null;
   scroll.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch') return;
-    if (e.target.closest('.tl-clip') || e.target.closest('.tl-marker') || e.target.closest('.tl-ioflag')) return;  // clip/marker/IO-flag gestures win
+    if (e.target.closest('.tl-clip') || e.target.closest('.tl-marker') || e.target.closest('.tl-ioflag') || e.target.closest('.tl-addrow')) return;  // clip/marker/IO-flag/track-button gestures win
     e.stopPropagation();
     touchPanning = true;
     const startX = e.clientX, startScroll = scroll.scrollLeft;

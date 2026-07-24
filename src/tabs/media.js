@@ -97,6 +97,8 @@ export async function initMedia(eng) {
   el('removeMediaBtn').onclick = () => { if (state.selectedMediaId) removeMedia(state.selectedMediaId); };
 
   bus.on('media:changed', renderGrid);
+  // fix strip-as-thumb entries from older builds as projects load
+  bus.on('project:restored', () => { for (const m of state.media) healStripThumb(m); });
   renderGrid();
 }
 
@@ -422,6 +424,28 @@ function setThumbLook(name) {
   if (thumbLook) { const def = findLut(thumbLook); if (def) { try { lookLut = def.get(); } catch {} } }
   renderGrid();               // updateCard → bakeOne per visible clip
   bus.emit('thumbs:baked');   // pool falls back to originals meanwhile
+}
+
+// ---- legacy heal: some earlier builds persisted the 10-frame filmstrip
+// SPRITE as m.thumb, which renders as a squeezed striped bar in the pools.
+// Detect ultra-wide thumbs, reclassify them as the strip, and cut a proper
+// poster out of the sprite's middle frame. ----
+async function healStripThumb(m) {
+  if (!m.thumb || m._healBusy) return;
+  m._healBusy = true;
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = m.thumb; });
+    if (img.width / Math.max(1, img.height) <= 6) return;   // normal poster
+    if (!m.strip) m.strip = m.thumb;
+    const fw = img.width / STRIP_FRAMES;
+    const c = document.createElement('canvas');
+    c.width = 320; c.height = Math.max(2, Math.round(320 * img.height / fw));
+    c.getContext('2d').drawImage(img, Math.floor(STRIP_FRAMES / 2) * fw, 0, fw, img.height, 0, 0, c.width, c.height);
+    m.thumb = c.toDataURL('image/jpeg', 0.7);
+    updateCard(m);
+    bus.emit('thumbs:baked');
+  } catch {} finally { m._healBusy = false; }
 }
 
 // Default card thumb: the MIDDLE frame of the hover filmstrip when it exists —

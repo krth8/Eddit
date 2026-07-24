@@ -184,10 +184,20 @@ export function addClipAt(mediaId, { kind = 'video', trackIndex = 0, start = 0, 
   return c;
 }
 
-// add a text/title clip on a new top video track (overlays everything below)
-export function addTitle(start = 0, dur = 5) {
+// overlay clips (titles/solids) live ABOVE the footage: reuse the TOPMOST
+// track when its span is free — a new track only grows when the top one is
+// occupied there (adding a title used to spawn a fresh track every time)
+function overlayTrackIndex(start, dur) {
+  const top = state.tracks.video.length - 1;
+  const free = (tr) => !tr.clips.some((c) => start < clipEnd(c) && start + dur > c.start);
+  if (top >= 1 && free(state.tracks.video[top])) return top;
   ensureVideoTracks(state.tracks.video.length + 1);
-  const ti = state.tracks.video.length - 1;
+  return state.tracks.video.length - 1;
+}
+
+// add a text/title clip on the topmost free overlay track
+export function addTitle(start = 0, dur = 5) {
+  const ti = overlayTrackIndex(start, dur);
   const c = makeClip(null, { kind: 'video', type: 'title', title: defaultTitle(), start, in: 0, out: dur });
   state.tracks.video[ti].clips.push(c);
   state.grades[c.id] = defaultGrade();
@@ -197,8 +207,7 @@ export function addTitle(start = 0, dur = 5) {
 
 // solid-colour generator (a title clip that's all backdrop, no text)
 export function addSolid(color = '#0e0e12', start = 0, dur = 5) {
-  ensureVideoTracks(state.tracks.video.length + 1);
-  const ti = state.tracks.video.length - 1;
+  const ti = overlayTrackIndex(start, dur);
   const title = { ...defaultTitle(), text: '', bg: color, bgOpacity: 1 };
   const c = makeClip(null, { kind: 'video', type: 'title', title, start, in: 0, out: dur });
   state.tracks.video[ti].clips.push(c);

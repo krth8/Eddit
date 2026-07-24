@@ -379,7 +379,10 @@ export class Engine {
         const { media, srcTime, clip } = this._latestReq; this._latestReq = null;
         try {
           const bmp = await this.frameServer.frameAt(media, srcTime);
-          if (bmp && this.canvas) { this._applyGrade(clip); if (this.canvas.width !== bmp.width || this.canvas.height !== bmp.height) { this.canvas.width = bmp.width; this.canvas.height = bmp.height; } this.renderer.drawSource(bmp, bmp.width, bmp.height); bus.emit('frame:drawn'); }
+          // the canvas STAYS at project resolution — resizing it to the proxy
+          // buffer here made the player flip sizes between scrubbing and
+          // playback (worst at title clips, which render at project size)
+          if (bmp && this.canvas) { this._applyGrade(clip); this._sizeCanvas(); this.renderer.drawSource(bmp, bmp.width, bmp.height); bus.emit('frame:drawn'); }
           else if (!bmp) { this._ensureVideoRaf(); this._loadInto(this.cur, this.cur.seg || programAt(state.playhead), srcTime); }
         } catch { this._ensureVideoRaf(); }
       }
