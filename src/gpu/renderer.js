@@ -390,7 +390,8 @@ export class Renderer {
 
   setCanvas(canvas) {
     if (!this.ok) return;
-    this.canvas = canvas;
+    this.canvas = canvas || null;
+    if (!canvas) { this.ctx = null; return; }   // e.g. restoring a never-set canvas
     this.ctx = canvas.getContext('webgpu');
     this.ctx.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
   }

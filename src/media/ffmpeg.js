@@ -99,13 +99,13 @@ function _recycle() { try { _ff?.terminate?.(); } catch {} _ff = null; _loading 
 // core makes exec reject; the next job simply reloads a fresh core
 export function abortTranscode() { _recycle(); }
 
-export async function transcodeToProxy(file, targetH, onProgress, onStatus, hintMP, ctl) {
+export async function transcodeToProxy(file, targetH, onProgress, onStatus, hintMP, ctl, opts) {
   // The wasm heap only ever GROWS — a long proxy queue (dozens of 6K clips)
   // slowly fragments it until a conversion aborts mid-queue. Recycling the
   // engine every few jobs resets the heap for ~2s of reload time.
   if (_jobs >= 4) _recycle();
   try {
-    const out = await runTranscode(file, targetH, onProgress, onStatus, false, hintMP);
+    const out = await runTranscode(file, targetH, onProgress, onStatus, false, hintMP, opts);
     _jobs++;
     return out;
   } catch (e) {
@@ -122,12 +122,18 @@ export async function transcodeToProxy(file, targetH, onProgress, onStatus, hint
     console.warn('[ffmpeg] transcode failed (' + (stalled ? 'stall' : 'error') + '), retrying on a fresh core:', msg);
     onStatus?.(stalled ? 'engine stalled — restarting…' : 'retrying with low-memory engine…', null);
     _recycle(); _forceST = !stalled;
-    try { const out = await runTranscode(file, targetH, onProgress, onStatus, !stalled, hintMP); _jobs++; return out; }
+    try { const out = await runTranscode(file, targetH, onProgress, onStatus, !stalled, hintMP, opts); _jobs++; return out; }
     finally { _forceST = false; }
   }
 }
 
-async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP) {
+// EXPORT CONFORM: transcode only the USED range of an undecodable original at
+// delivery resolution/quality — export must never re-encode editing proxies.
+export function transcodeRange(file, { ss = 0, dur = 0, height, crf = 15, gop = 12 }, onProgress, onStatus, hintMP) {
+  return transcodeToProxy(file, height, onProgress, onStatus, hintMP, null, { ss, dur, crf, gop });
+}
+
+async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP, opts = {}) {
   const ff = await getFFmpeg(onStatus);
   const outName = 'proxy.mp4';
   const MDIR = '/in';
@@ -199,9 +205,11 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP)
       // speedups — invisible at proxy scale, and HEVC 10-bit software decode
       // is the dominant cost of this tier
       '-skip_loop_filter', 'all', '-flags2', '+fast',
+      ...(opts.ss ? ['-ss', String(opts.ss)] : []),
       '-i', inPath,
-      '-vf', `scale=-2:${Math.round(targetH / 2) * 2}:flags=fast_bilinear,format=yuv420p`,
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-g', '1', // all-intra, fast
+      ...(opts.dur ? ['-t', String(opts.dur)] : []),
+      '-vf', `scale=-2:${Math.round(targetH / 2) * 2}:flags=${opts.crf ? 'bicubic' : 'fast_bilinear'},format=yuv420p`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(opts.crf ?? 23), '-g', String(opts.gop ?? 1),
       // all-intra needs no lookahead — dropping it saves per-thread buffers
       '-x264-params', 'rc-lookahead=0:sync-lookahead=0',
       '-threads', String(threads),

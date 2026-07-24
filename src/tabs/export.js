@@ -4,6 +4,8 @@ import { state, timelineDuration, programAt, srcTimeAt, videoProgram, getMedia, 
 import { el, fmtTC, toast } from '../util.js';
 import { renderTitleCanvas } from '../timeline/title.js';
 import { mixTimelineAudio, audioClips } from '../timeline/mixer.js';
+import { transcodeRange } from '../media/ffmpeg.js';
+import { loadProxy, saveProxy } from '../store.js';
 
 let engine = null, renderer = null;
 
@@ -33,9 +35,21 @@ export function refresh() {
   const prog = videoProgram();
   const n = prog.length;
   el('exClipCount').textContent = n;
-  const px = n ? proxySourcedCount() : 0;
+  let conformN = 0, missingN = 0;
+  if (n) {
+    const seen = new Set();
+    for (const s of videoProgram()) {
+      const m = getMedia(s.clip.mediaId);
+      if (!m || seen.has(m.id)) continue;
+      seen.add(m.id);
+      if (m.playable && m.url) continue;
+      if (m.file) conformN++; else missingN++;
+    }
+  }
   el('exState').textContent = n
-    ? `Ready — ${fmtTC(timelineDuration())}` + (px ? ` · ${px} clip${px === 1 ? '' : 's'} render from proxy (original missing or not browser-decodable)` : '')
+    ? `Ready — ${fmtTC(timelineDuration())}`
+      + (conformN ? ` · ${conformN} clip${conformN === 1 ? '' : 's'} conform at render (ffmpeg, full quality)` : '')
+      + (missingN ? ` · ${missingN} clip${missingN === 1 ? '' : 's'} need re-linking before export` : '')
     : 'Nothing to export yet';
   el('exSummary').textContent = n
     ? prog.map((s, i) => `${i + 1}. ${getMedia(s.clip.mediaId)?.name || '?'} [${s.start.toFixed(1)}–${s.end.toFixed(1)}s]`).join('\n')
@@ -49,18 +63,6 @@ function exportSrc(m) {
   if (m.playable && m.url) return m.url;
   return (m.proxyReady && m.proxyUrl) || m.url;
 }
-function proxySourcedCount() {
-  const seen = new Set();
-  let n = 0;
-  for (const s of videoProgram()) {
-    const m = getMedia(s.clip.mediaId);
-    if (!m || seen.has(m.id)) continue;
-    seen.add(m.id);
-    if (!(m.playable && m.url)) n++;
-  }
-  return n;
-}
-
 function awaitEvent(target, ev, timeout = 4000) {
   return new Promise((res) => { const t = setTimeout(res, timeout); target.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true }); });
 }
@@ -120,6 +122,44 @@ async function render() {
 
   const dur = timelineDuration();
 
+  // ---- CONFORM pass: originals the browser can't decode are transcoded by
+  // ffmpeg.wasm at DELIVERY resolution, for the ranges actually used on the
+  // timeline. Export NEVER re-encodes editing proxies — proxy is edit-only.
+  const conform = new Map();   // clipId -> { url, off }
+  {
+    const need = [], missing = new Set();
+    for (const tr of state.tracks.video) for (const c of tr.clips) {
+      if (c.type === 'title') continue;
+      const m = getMedia(c.mediaId); if (!m) continue;
+      if (m.playable && m.url) continue;             // WebCodecs/native path
+      if (!m.file) { missing.add(m.name); continue; }
+      need.push({ c, m });
+    }
+    if (missing.size) {
+      status.textContent = 'Re-link originals before export (proxies are edit-only): ' + [...missing].join(', ');
+      toast('Re-link originals to export at full quality', true, 6000);
+      btn.disabled = false; prog.classList.add('hidden'); renderer.setCanvas(prevCanvas);
+      return;
+    }
+    for (let i = 0; i < need.length; i++) {
+      const { c, m } = need[i];
+      const ss = Math.max(0, (c.in || 0) - 0.3);
+      const durS = (c.out - c.in) + 0.6;
+      const key = `conform__${(m.name || 'c').replace(/[^\w.-]/g, '_')}__${m.size || 0}__${Math.round(ss * 10)}_${Math.round(durS * 10)}_${H}.mp4`;
+      let blob = await loadProxy(key).catch(() => null);
+      if (!blob) {
+        const lbl = `Conforming ${m.name} (${i + 1}/${need.length})`;
+        status.textContent = lbl + ' — full quality via ffmpeg…';
+        blob = await transcodeRange(m.file, { ss, dur: durS, height: H },
+          (p2) => { bar.style.width = (p2 * 100).toFixed(0) + '%'; },
+          (txt, pct) => { status.textContent = `${lbl} — ${txt || ''}${pct != null ? ' ' + Math.round(pct * 100) + '%' : ''}`; },
+          (m.width || 0) * (m.height || 0));
+        saveProxy(key, blob).catch(() => {});
+      }
+      conform.set(c.id, { url: URL.createObjectURL(blob), off: ss });
+    }
+  }
+
   // ---- mix the timeline audio offline (dedicated tracks + video-clip audio) ----
   let audioBuf = null;
   let audioOk = false;
@@ -150,7 +190,9 @@ async function render() {
   });
   let encErr = null;
   const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { encErr = e; } });
-  encoder.configure({ codec: 'avc1.640028', width: W, height: H, bitrate, framerate: fps, latencyMode: 'quality' });
+  // H.264 level must scale with resolution (L4.0 tops out around 1080p)
+  const avc = W > 4096 ? 'avc1.640034' : H > 1440 ? 'avc1.640033' : H > 1080 ? 'avc1.640032' : 'avc1.640028';
+  encoder.configure({ codec: avc, width: W, height: H, bitrate, framerate: fps, latencyMode: 'quality' });
 
   // encode the mixed audio track up front (fast; muxer sorts by timestamp)
   if (audioBuf) {
@@ -159,7 +201,7 @@ async function render() {
   }
 
   const total = Math.max(1, Math.round(dur * fps));
-  let curMedia = null, lastClipId = null;
+  let lastClipId = null;
   const multi = populatedVideoTracks() >= 2;      // composite all video tracks
   const layerVids = new Map();                    // clipId -> pooled <video>
   const applyGrade = (clip, t, opMul = 1) => {
@@ -174,10 +216,12 @@ async function render() {
     let v = layerVids.get(clip.id);
     if (!v) { v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; layerVids.set(clip.id, v); }
     const m = getMedia(clip.mediaId); if (!m) return null;
-    const src = exportSrc(m);
+    const cf = conform.get(clip.id);
+    const src = cf ? cf.url : exportSrc(m);
     if (v.dataset.src !== src) { v.dataset.src = src; v.src = src; await awaitEvent(v, 'loadeddata'); }
     const srcTime = clip.in + Math.max(0, t - clip.start) * (clip.speed || 1);
-    if (Math.abs(v.currentTime - srcTime) > 0.001) { v.currentTime = srcTime; await awaitEvent(v, 'seeked'); }
+    const vt = cf ? Math.max(0, srcTime - cf.off) : srcTime;
+    if (Math.abs(v.currentTime - vt) > 0.001) { v.currentTime = vt; await awaitEvent(v, 'seeked'); }
     return v;
   };
   // drawable source for a clip: rendered title canvas or a seeked video frame
@@ -236,12 +280,14 @@ async function render() {
       const media = getMedia(seg.clip.mediaId);
       const srcTime = srcTimeAt(seg, t);
 
-      if (media !== curMedia) {
-        curMedia = media;
-        video.src = exportSrc(media);
+      const cf = conform.get(seg.clip.id);
+      const want = cf ? cf.url : exportSrc(media);
+      if (video.dataset.src !== want) {
+        video.dataset.src = want; video.src = want;
         await awaitEvent(video, 'loadeddata');
       }
-      if (Math.abs(video.currentTime - srcTime) > 0.001) { video.currentTime = srcTime; await awaitEvent(video, 'seeked'); }
+      const vt = cf ? Math.max(0, srcTime - cf.off) : srcTime;
+      if (Math.abs(video.currentTime - vt) > 0.001) { video.currentTime = vt; await awaitEvent(video, 'seeked'); }
 
       if (seg.clip.id !== lastClipId) {
         const g = state.grades[seg.clip.id];
@@ -288,6 +334,7 @@ async function render() {
     engine.markGradeDirty();
     for (const v of layerVids.values()) { try { v.removeAttribute('src'); v.load(); } catch {} }
     layerVids.clear();
+    for (const c of conform.values()) { try { URL.revokeObjectURL(c.url); } catch {} }
     btn.disabled = false;
   }
 }
