@@ -255,51 +255,61 @@ export class Engine {
       return { source: cv, w: cv.width, h: cv.height };
     }
     const el = this._layerEl(clip);
-    if (!el || !el.videoWidth) return null;
+    if (!el || !el.videoWidth || el.readyState < 2) return null;   // no decoded frame yet
     return { source: el, w: el.videoWidth, h: el.videoHeight };
   }
 
   _drawTransition(tr) {
     this._ensureCanvasSize(tr.prev);
-    this.renderer.beginComposite();
     const ps = this._sourceFor(tr.prev);   // outgoing: source continues past its out-point
-    if (ps) { this._setLayer(tr.prev, 1); this.renderer.drawLayer(ps.source, ps.w, ps.h); }
     const cs = this._sourceFor(tr.cur);    // incoming: ramps in over the dissolve
+    if (!ps && !cs) return false;          // neither ready — hold the last frame
+    this.renderer.beginComposite();
+    if (ps) { this._setLayer(tr.prev, 1); this.renderer.drawLayer(ps.source, ps.w, ps.h); }
     if (cs) { this._setLayer(tr.cur, tr.p); this.renderer.drawLayer(cs.source, cs.w, cs.h); }
     this._appliedClipId = null;
+    return true;
   }
 
   _drawOnce() {
     if (!this.canvas) return;
-    this._drawFrame();
     // scopes & friends sample the canvas in the SAME task as the submit —
-    // reading a WebGPU canvas after presentation is unreliable.
-    bus.emit('frame:drawn');
+    // reading a WebGPU canvas after presentation is unreliable. Only announce
+    // frames that actually DREW (held frames would read back blank).
+    if (this._drawFrame()) bus.emit('frame:drawn');
   }
   redraw() { this._drawOnce(); }
   _drawFrame() {
     const tr = transitionAt(state.playhead);
-    if (tr) { this._drawTransition(tr); return; }
+    if (tr) { return this._drawTransition(tr); }
     // multi-track projects composite — but only when ≥2 layers are actually
     // under the playhead. A title parked elsewhere on V2 used to force the
     // compositing path for the WHOLE timeline, which stutters on phones.
     if (populatedVideoTracks() >= 2) {
       const layers = layersAt(state.playhead);
-      if (layers.length >= 2) { this._composite(layers); return; }
+      if (layers.length >= 2) { return this._composite(layers); }
       this._pauseLayerEls();      // fall through to the fast A/B path
     }
-    const seg = this.cur.seg || programAt(state.playhead);
-    if (!seg) { this._drawBlack(); return; }
+    // cur.seg can be STALE during scrubbing (e.g. the playhead left a title's
+    // range but the slot still holds it) — drawing a lone title on a cleared
+    // backdrop flashes black. Only trust it while the playhead is inside it.
+    let seg = this.cur.seg;
+    // strict on the END side: at a clip's exact end (e.g. the playhead clamped
+    // to a timeline that ends in a title) the clip is already over — keeping
+    // it drew a lone title on black
+    if (seg && (state.playhead < seg.start - 0.02 || state.playhead >= seg.end)) seg = null;
+    seg = seg || programAt(state.playhead);
+    if (!seg) { return this._drawBlack(); }
     if (seg.clip.type === 'title') {
       this._ensureCanvasSize(seg.clip); this._setLayer(seg.clip, 1);
-      const s = this._sourceFor(seg.clip); if (s) this.renderer.drawSource(s.source, s.w, s.h);
-      return;
+      const s = this._sourceFor(seg.clip);
+      return s ? this.renderer.drawSource(s.source, s.w, s.h) : false;
     }
     this._applyGrade(seg.clip);
     const el = this.cur.el;
-    if (el.videoWidth) this.renderer.drawSource(el, el.videoWidth, el.videoHeight);
+    return el.videoWidth ? this.renderer.drawSource(el, el.videoWidth, el.videoHeight) : false;
   }
-  _drawBlack() { if (this.canvas && this.renderer.clear) this.renderer.clear(); }
+  _drawBlack() { if (this.canvas && this.renderer.clear) { this.renderer.clear(); return true; } return false; }
 
   // ---- N-layer compositing (video tracks blended bottom→top) ----
   _layerEl(clip) {
@@ -331,7 +341,7 @@ export class Engine {
   _composite(layers) {
     const t = state.playhead;
     if (!layers) layers = layersAt(t);
-    if (!layers.length) { this._drawBlack(); return; }
+    if (!layers.length) { return this._drawBlack(); }
     // layer elements that fell out of the active set must stop playing
     if (this._layerEls) {
       const activeIds = new Set(layers.map((l) => l.clip.id));
@@ -343,14 +353,17 @@ export class Engine {
       const liveIds = new Set(state.tracks.video.flatMap((tr) => tr.clips.map((c) => c.id)));
       for (const [id, el] of this._layerEls) if (!liveIds.has(id)) { try { el.removeAttribute('src'); el.load(); } catch {} this._layerEls.delete(id); }
     }
+    // resolve every layer's source BEFORE clearing: a not-yet-decoded video
+    // must hold the previous picture, not black-flash or pop layers in and out
+    const srcs = layers.map(({ clip }) => ({ clip, s: this._sourceFor(clip) }));
+    if (srcs.some((x) => !x.s)) return false;   // hold the last frame until all layers are drawable
     this.renderer.beginComposite();
-    for (const { clip } of layers) {
-      const s = this._sourceFor(clip);
-      if (!s) continue;
+    for (const { clip, s } of srcs) {
       this._setLayer(clip, 1);
       this.renderer.drawLayer(s.source, s.w, s.h);
     }
     this._appliedClipId = null;                 // grade cache invalidated by multi-set
+    return true;
   }
 
   // ---- scrubbing ----
@@ -390,7 +403,7 @@ export class Engine {
           // the canvas STAYS at project resolution — resizing it to the proxy
           // buffer here made the player flip sizes between scrubbing and
           // playback (worst at title clips, which render at project size)
-          if (bmp && this.canvas) { this._applyGrade(clip); this._sizeCanvas(); this.renderer.drawSource(bmp, bmp.width, bmp.height); bus.emit('frame:drawn'); }
+          if (bmp && this.canvas) { this._applyGrade(clip); this._sizeCanvas(); if (this.renderer.drawSource(bmp, bmp.width, bmp.height)) bus.emit('frame:drawn'); }
           else if (!bmp) { this._ensureVideoRaf(); this._loadInto(this.cur, this.cur.seg || programAt(state.playhead), srcTime); }
         } catch { this._ensureVideoRaf(); }
       }

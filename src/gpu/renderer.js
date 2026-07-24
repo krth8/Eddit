@@ -607,7 +607,7 @@ export class Renderer {
   }
 
   drawLayer(source, w, h) {
-    if (!this.ok || !this.ctx || !this._frameView || !w || !h) return;
+    if (!this.ok || !this.ctx || !this._frameView || !w || !h) return false;
     // default-fill: compute the cover crop for this source vs the canvas frame
     const ca = (this.canvas?.width || 1) / (this.canvas?.height || 1);
     const sa = w / h;
@@ -616,7 +616,7 @@ export class Renderer {
       this._fit = fit; this._writeUniform();
     }
     const isVideo = typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement;
-    if (isVideo && source.readyState < 2) return;   // no decodable frame yet
+    if (isVideo && source.readyState < 2) return false;   // no decodable frame yet
     let pipeline = null, bind = null;
     if (isVideo && this.extOK && this.pipelineExt) {
       try {
@@ -642,7 +642,7 @@ export class Renderer {
           c.getContext('2d').drawImage(source, 0, 0, w, h);
           this.device.queue.copyExternalImageToTexture({ source: c, flipY: false }, { texture: this.srcTex }, [w, h]);
           this.srcMode = 'canvas';
-        } catch (e2) { this.uploadFails = (this.uploadFails || 0) + 1; return; }
+        } catch (e2) { this.uploadFails = (this.uploadFails || 0) + 1; return false; }
       }
       pipeline = this.pipeline; bind = this._bind();
     }
@@ -653,13 +653,18 @@ export class Renderer {
     pass.draw(3);
     pass.end();
     this.device.queue.submit([enc.finish()]);
+    return true;
   }
 
   // source: HTMLVideoElement | ImageBitmap | HTMLImageElement | HTMLCanvasElement
   drawSource(source, w, h) {
-    if (!this.ok || !this.ctx || !w || !h) return;
+    if (!this.ok || !this.ctx || !w || !h) return false;
+    // a video with no decoded frame yet must not CLEAR the canvas and then
+    // bail inside drawLayer — that black-flashes every seek during scrubbing.
+    // Keep the previous picture until a drawable frame arrives.
+    if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement && source.readyState < 2) return false;
     this.beginComposite();
-    this.drawLayer(source, w, h);
+    return this.drawLayer(source, w, h);
   }
 
   clear() {
