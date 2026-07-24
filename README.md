@@ -17,7 +17,7 @@
 - **Secondary grading** — colour qualifier with eyedropper, power windows (circle / rect / linear) with feather and invert, matte preview
 - **Scopes** — waveform, RGB parade, vectorscope, histogram
 - **FX** — glow (exponential bloom), vignette, turbulence displace, wiggle — per clip, plus keyframeable transforms, speed ramps and pitch-preserving audio
-- **Media** — H.264 and 10-bit H.265 import, automatic all-intra proxies (WebCodecs with ffmpeg.wasm fallback) cached in OPFS, filmstrip hover-scrub
+- **Media** — H.264, 10-bit H.265 and ProRes import (nearly any camera codec via the tiered WebCodecs → ffmpeg.wasm decode pipeline), automatic all-intra proxies cached in OPFS, filmstrip hover-scrub
 - **Export** — GPU-rendered H.264 MP4 with AAC audio via WebCodecs, up to 4K
 - **Runs anywhere** — installable PWA with a full touch UI for phones and tablets; projects live in IndexedDB with autosave
 - **Private by design** — no server, no upload, no account; your footage never leaves your machine
