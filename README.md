@@ -18,7 +18,7 @@
 - **Scopes** — waveform, RGB parade, vectorscope, histogram
 - **FX** — glow (exponential bloom), vignette, turbulence displace, wiggle — per clip, plus keyframeable transforms, speed ramps and pitch-preserving audio
 - **Media** — import nearly any codec: H.264, 10-bit H.265, ProRes and more decode through a tiered WebCodecs → ffmpeg pipeline, with automatic editing proxies and filmstrip hover-scrub
-- **Export** — full-quality renders straight from your originals, never from proxies: GPU-graded H.264 MP4 with AAC audio up to 4K, and codecs the browser can't decode are conformed at delivery resolution automatically
+- **Export** — full-quality renders straight from your originals: GPU-graded H.264 MP4 with AAC audio up to 4K, any source codec
 - **Every device** — a carefully considered, fully adaptive interface with purpose-built layouts for desktop, tablet and phone; installs as a PWA and projects autosave locally
 - **Private by design** — no server, no upload, no account; your footage never leaves your machine
 
