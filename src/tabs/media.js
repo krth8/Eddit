@@ -93,7 +93,10 @@ export async function initMedia(eng) {
   };
 
   el('addToTl').onclick = () => { if (state.selectedMediaId) { appendClip(state.selectedMediaId); toast('Added to timeline'); } };
-  el('rebuildProxy').onclick = () => { const m = getMedia(state.selectedMediaId); if (m) { m.proxyReady = false; queueProxy(m, true); } };
+  el('rebuildProxy').onclick = () => {
+    const m = getMedia(state.selectedMediaId);
+    if (m) { m.proxyReady = false; m.thumb = null; m.strip = null; queueProxy(m, true); }   // also refresh derived assets
+  };
   el('removeMediaBtn').onclick = () => { if (state.selectedMediaId) removeMedia(state.selectedMediaId); };
 
   bus.on('media:changed', renderGrid);
@@ -451,7 +454,7 @@ async function classifyThumbs(m) {
         if (!m.strip) m.strip = m.thumb;
         const fw = im.width / STRIP_FRAMES;
         const c = document.createElement('canvas');
-        c.width = 320; c.height = Math.max(2, Math.round(320 * im.height / fw));
+        c.width = 640; c.height = Math.max(2, Math.round(640 * im.height / fw));
         c.getContext('2d').drawImage(im, Math.floor(STRIP_FRAMES / 2) * fw, 0, fw, im.height, 0, 0, c.width, c.height);
         m.thumb = c.toDataURL('image/jpeg', 0.7);
         changed = true;

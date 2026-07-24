@@ -1,7 +1,7 @@
 // Filmstrip for hover-scrub: N evenly spaced frames composed into one wide
 // JPEG sprite (persisted with the project like the poster thumb). Fed from the
 // all-intra proxy normally, so the seeks are effectively instant.
-export function makeStrip(source, frames = 10, fw = 160) {
+export function makeStrip(source, frames = 10, fw = 320) {
   return new Promise((resolve) => {
     const url = typeof source === 'string' ? source : URL.createObjectURL(source);
     const v = document.createElement('video');
@@ -67,7 +67,7 @@ export function probe(file) {
     const capture = () => {
       try {
         const c = document.createElement('canvas');
-        const scale = 320 / (v.videoWidth || 320);
+        const scale = 640 / (v.videoWidth || 640);
         c.width = Math.max(2, Math.round(v.videoWidth * scale));
         c.height = Math.max(2, Math.round(v.videoHeight * scale));
         const cx = c.getContext('2d', { willReadFrequently: true });

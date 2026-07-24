@@ -43,7 +43,7 @@ const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 // the user is on another tab.
 const blobToDataURL = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); });
 
-export async function analyzeProxy(blob, { frames = 10, fw = 160, thumbW = 320 } = {}) {
+export async function analyzeProxy(blob, { frames = 10, fw = 320, thumbW = 640 } = {}) {
   const dem = await demux(blob);
   const out = { width: dem.width || 0, height: dem.height || 0, duration: dem.duration || 0, thumb: null, strip: null };
   if (!dem.samples.length || !('VideoDecoder' in window) || !out.width) return out;
