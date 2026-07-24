@@ -6,7 +6,7 @@ import { makeProxy, codecSupport, analyzeProxy } from '../media/proxy.js';
 import { demux } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
-import { findLut } from '../luts.js';
+import { findLut, LUT_CATEGORIES } from '../luts.js';
 import { ffmpegLoaded, ffmpegMultithread, abortTranscode } from '../media/ffmpeg.js';
 
 let engine = null;
@@ -62,6 +62,25 @@ export async function initMedia(eng) {
 
   el('tsize').oninput = (e) => el('grid').style.setProperty('--tw', e.target.value + 'px');
   el('search').oninput = renderGrid;
+
+  // sorting + thumbnail preview look (display-only LUT baked into thumbs)
+  const srt = el('mediaSort');
+  if (srt) {
+    srt.value = localStorage.getItem('eddit.mediaSort') || 'added';
+    srt.onchange = () => { localStorage.setItem('eddit.mediaSort', srt.value); renderGrid(); };
+  }
+  const tl = el('thumbLook');
+  if (tl) {
+    tl.innerHTML = '<option value="">Thumb look: none</option>';
+    for (const cat of LUT_CATEGORIES) {
+      const og = document.createElement('optgroup'); og.label = cat.name;
+      for (const it of cat.luts) { const o = document.createElement('option'); o.value = it.name; o.textContent = it.name; og.appendChild(o); }
+      tl.appendChild(og);
+    }
+    tl.value = thumbLook && findLut(thumbLook) ? thumbLook : '';
+    if (tl.value) setThumbLook(tl.value);   // resolve the LUT for the saved pick
+    tl.onchange = () => setThumbLook(tl.value);
+  }
 
   // OPFS proxy-cache size + clear (proxyBytes existed but was never surfaced)
   updateCacheStat();
@@ -325,15 +344,98 @@ export async function ensureStrip(m) {
   } finally { m._stripBusy = false; }
 }
 
+// ---- thumbnail preview look: bake a conversion/creative LUT into DISPLAY
+// copies of the poster + filmstrip so log footage previews graded. Originals
+// (m.thumb / m.strip) are never touched; caches drop when the look changes ----
+let thumbLook = localStorage.getItem('eddit.thumbLook') || '';
+let lookLut = null;
+let lookGen = 0;
+const lookCache = new Map();   // mediaId -> { thumb, strip } (baked data-URLs)
+
+// trilinear sample of a {size,data} float LUT at encoded rgb 0..1
+function sampleLut(lut, r, g, b) {
+  const s = lut.size, d = lut.data, mx = s - 1;
+  const fx = Math.min(mx, Math.max(0, r * mx)), fy = Math.min(mx, Math.max(0, g * mx)), fz = Math.min(mx, Math.max(0, b * mx));
+  const x0 = fx | 0, y0 = fy | 0, z0 = fz | 0;
+  const x1 = Math.min(mx, x0 + 1), y1 = Math.min(mx, y0 + 1), z1 = Math.min(mx, z0 + 1);
+  const tx = fx - x0, ty = fy - y0, tz = fz - z0;
+  const at = (x, y, z) => ((z * s + y) * s + x) * 4;
+  const out = [0, 0, 0];
+  for (let c = 0; c < 3; c++) {
+    const c000 = d[at(x0, y0, z0) + c], c100 = d[at(x1, y0, z0) + c];
+    const c010 = d[at(x0, y1, z0) + c], c110 = d[at(x1, y1, z0) + c];
+    const c001 = d[at(x0, y0, z1) + c], c101 = d[at(x1, y0, z1) + c];
+    const c011 = d[at(x0, y1, z1) + c], c111 = d[at(x1, y1, z1) + c];
+    const c00 = c000 + (c100 - c000) * tx, c10 = c010 + (c110 - c010) * tx;
+    const c01 = c001 + (c101 - c001) * tx, c11 = c011 + (c111 - c011) * tx;
+    const c0 = c00 + (c10 - c00) * ty, c1 = c01 + (c11 - c01) * ty;
+    out[c] = c0 + (c1 - c0) * tz;
+  }
+  return out;
+}
+
+async function bakeLook(dataURL, lut) {
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataURL; });
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(img, 0, 0);
+  const id = cx.getImageData(0, 0, c.width, c.height), d = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const o = sampleLut(lut, d[i] / 255, d[i + 1] / 255, d[i + 2] / 255);
+    d[i] = o[0] * 255; d[i + 1] = o[1] * 255; d[i + 2] = o[2] * 255;
+  }
+  cx.putImageData(id, 0, 0);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
+let bakedT = 0;
+function bakeOne(m) {
+  if (!thumbLook || !lookLut || m._lookBusy || lookCache.has(m.id)) return;
+  if (!m.thumb && !m.strip) return;
+  m._lookBusy = true;
+  const gen = lookGen;
+  (async () => {
+    try {
+      const e = {};
+      if (m.strip) e.strip = await bakeLook(m.strip, lookLut);
+      if (m.thumb) e.thumb = await bakeLook(m.thumb, lookLut);
+      if (gen === lookGen) {
+        lookCache.set(m.id, e);
+        updateCard(m);
+        // pool refresh, debounced — media:changed would spam the autosave
+        const now = performance.now();
+        if (now - bakedT > 300) { bakedT = now; bus.emit('thumbs:baked'); }
+        else setTimeout(() => bus.emit('thumbs:baked'), 350);
+      }
+    } catch {}
+    m._lookBusy = false;
+  })();
+}
+
+function setThumbLook(name) {
+  thumbLook = name || '';
+  localStorage.setItem('eddit.thumbLook', thumbLook);
+  lookGen++;
+  lookCache.clear();
+  lookLut = null;
+  if (thumbLook) { const def = findLut(thumbLook); if (def) { try { lookLut = def.get(); } catch {} } }
+  renderGrid();               // updateCard → bakeOne per visible clip
+  bus.emit('thumbs:baked');   // pool falls back to originals meanwhile
+}
+
 // Default card thumb: the MIDDLE frame of the hover filmstrip when it exists —
 // a mid-shot frame represents the clip far better than a first-frame poster.
 // Falls back to the poster until the strip is built.
 export function thumbStyle(m) {
-  if (m.strip) {
+  const lk = thumbLook ? lookCache.get(m.id) : null;
+  const strip = (lk && lk.strip) || m.strip;
+  const thumb = (lk && lk.thumb) || m.thumb;
+  if (strip) {
     const pos = (Math.floor(STRIP_FRAMES / 2) / (STRIP_FRAMES - 1) * 100).toFixed(2);
-    return { image: `url(${m.strip})`, size: (STRIP_FRAMES * 100) + '% 100%', position: pos + '% 50%' };
+    return { image: `url(${strip})`, size: (STRIP_FRAMES * 100) + '% 100%', position: pos + '% 50%' };
   }
-  if (m.thumb) return { image: `url(${m.thumb})`, size: '', position: '' };
+  if (thumb) return { image: `url(${thumb})`, size: '', position: '' };
   return null;
 }
 export function applyThumbStyle(elm, m) {
@@ -413,6 +515,7 @@ export function updateCard(m, card) {
   const tb = card.querySelector('.thumbbox');
   tb.classList.toggle('nothumb', !m.thumb && !m.strip);
   applyThumbStyle(tb, m);
+  bakeOne(m);   // no-op unless a thumbnail look is active and unbaked
   // per-clip proxy progress bar (replaces the spinner while building)
   const pbar = card.querySelector('.card-prog');
   if (pbar) {
@@ -439,6 +542,17 @@ function renderGrid() {
   const q = (el('search')?.value || '').toLowerCase();
   let items = state.media.filter((m) => m.name.toLowerCase().includes(q));
   if (binFilter != null) items = items.filter((m) => { const d = dirOf(m); return d === binFilter || d.startsWith(binFilter + '/'); });
+  const sort = el('mediaSort')?.value || 'added';
+  if (sort !== 'added') {
+    const cmp = {
+      'name': (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }),
+      'name-d': (a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }),
+      'dur': (a, b) => (a.duration || 0) - (b.duration || 0),
+      'dur-d': (a, b) => (b.duration || 0) - (a.duration || 0),
+      'size-d': (a, b) => (b.size || 0) - (a.size || 0),
+    }[sort];
+    if (cmp) items = [...items].sort(cmp);
+  }
   empty.style.display = state.media.length ? 'none' : '';
   grid.style.display = state.media.length ? '' : 'none';
   const seen = new Set();

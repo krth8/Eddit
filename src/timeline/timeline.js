@@ -190,6 +190,7 @@ export function initTimeline(eng) {
 
   bus.on('timeline:changed', render);
   bus.on('media:changed', renderPool);
+  bus.on('thumbs:baked', renderPool);   // thumbnail-look bakes are display-only
   render(); renderPool();
 }
 

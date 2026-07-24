@@ -118,6 +118,15 @@
     <div class="media-main">
       <div class="toolbar">
         <input type="text" id="search" placeholder="search…" style="max-width:200px">
+        <select id="mediaSort" title="Sort clips" style="width:auto">
+          <option value="added">Added</option>
+          <option value="name">Name A–Z</option>
+          <option value="name-d">Name Z–A</option>
+          <option value="dur-d">Longest</option>
+          <option value="dur">Shortest</option>
+          <option value="size-d">Largest</option>
+        </select>
+        <select id="thumbLook" title="Preview look baked into thumbnails (display only — never touches the media)" style="width:auto;max-width:170px"></select>
         <div class="spacer"></div>
         <label class="row" style="gap:7px;color:var(--text-muted)">Size<input type="range" id="tsize" min="150" max="360" value="215" style="width:90px"></label>
         <span class="statline" id="mediaCount"></span>
