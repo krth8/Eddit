@@ -26,3 +26,5 @@ Requires a browser with WebGPU (Chrome/Edge 113+).
 
 > [!NOTE]
 > Eddit is early and moving fast — a lot more is on the way. Feedback is very welcome: [open an issue](https://github.com/krth8/Eddit/issues) with bugs, ideas or footage that misbehaves.
+
+Licensed under the [Elastic License 2.0](LICENSE) — free to use and self-host; may not be offered as a hosted service. Bundled third-party components (ffmpeg.wasm core, mp4box.js, mp4-muxer, coi-serviceworker) keep their own licenses.
