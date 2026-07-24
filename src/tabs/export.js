@@ -33,10 +33,32 @@ export function refresh() {
   const prog = videoProgram();
   const n = prog.length;
   el('exClipCount').textContent = n;
-  el('exState').textContent = n ? `Ready — ${fmtTC(timelineDuration())}` : 'Nothing to export yet';
+  const px = n ? proxySourcedCount() : 0;
+  el('exState').textContent = n
+    ? `Ready — ${fmtTC(timelineDuration())}` + (px ? ` · ${px} clip${px === 1 ? '' : 's'} render from proxy (original missing or not browser-decodable)` : '')
+    : 'Nothing to export yet';
   el('exSummary').textContent = n
     ? prog.map((s, i) => `${i + 1}. ${getMedia(s.clip.mediaId)?.name || '?'} [${s.start.toFixed(1)}–${s.end.toFixed(1)}s]`).join('\n')
     : 'Add clips in the Edit tab.';
+}
+
+// Export renders from the ORIGINAL whenever the browser can decode it — you
+// don't master a film from 720p proxies. The proxy is the fallback for
+// sources with no native decode path (ProRes etc.) or unlinked originals.
+function exportSrc(m) {
+  if (m.playable && m.url) return m.url;
+  return (m.proxyReady && m.proxyUrl) || m.url;
+}
+function proxySourcedCount() {
+  const seen = new Set();
+  let n = 0;
+  for (const s of videoProgram()) {
+    const m = getMedia(s.clip.mediaId);
+    if (!m || seen.has(m.id)) continue;
+    seen.add(m.id);
+    if (!(m.playable && m.url)) n++;
+  }
+  return n;
 }
 
 function awaitEvent(target, ev, timeout = 4000) {
@@ -152,7 +174,7 @@ async function render() {
     let v = layerVids.get(clip.id);
     if (!v) { v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; layerVids.set(clip.id, v); }
     const m = getMedia(clip.mediaId); if (!m) return null;
-    const src = m.proxyReady && m.proxyUrl ? m.proxyUrl : m.url;
+    const src = exportSrc(m);
     if (v.dataset.src !== src) { v.dataset.src = src; v.src = src; await awaitEvent(v, 'loadeddata'); }
     const srcTime = clip.in + Math.max(0, t - clip.start) * (clip.speed || 1);
     if (Math.abs(v.currentTime - srcTime) > 0.001) { v.currentTime = srcTime; await awaitEvent(v, 'seeked'); }
@@ -216,7 +238,7 @@ async function render() {
 
       if (media !== curMedia) {
         curMedia = media;
-        video.src = media.proxyReady && media.proxyUrl ? media.proxyUrl : media.url;
+        video.src = exportSrc(media);
         await awaitEvent(video, 'loadeddata');
       }
       if (Math.abs(video.currentTime - srcTime) > 0.001) { video.currentTime = srcTime; await awaitEvent(video, 'seeked'); }
