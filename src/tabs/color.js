@@ -1,6 +1,7 @@
 // Color tab: input transform, color wheels (lift/gamma/gain/offset), primary
 // sliders, curves editor, and LUTs (bundled + load from disk).
-import { state, defaultGrade, isGraded, videoProgram, programAt, bus } from '../state.js';
+import { state, defaultGrade, isGraded, videoProgram, programAt, bus, getMedia } from '../state.js';
+import { isMcraw } from '../media/mcraw.js';
 import { el, $$, clamp, toast, fmtShort, curveEval } from '../util.js';
 import { parseCube } from '../gpu/lut.js';
 import { LUT_CATEGORIES, findLut, addUserLut, USER_LUTS } from '../luts.js';
@@ -13,8 +14,13 @@ let curveCh = 'rgb';
 // grade keys driven by an a_<key> range input (Adjust + FX panels)
 const SLIDER_KEYS = ['exposure', 'contrast', 'saturation', 'temp', 'tint', 'pivot',
   'toneSh', 'toneHi', 'toneMap',
+  'rawExposure', 'rawTemp', 'rawTint',
   'vignette', 'vignetteSize', 'vignetteFeather', 'glow', 'glowThreshold', 'glowRadius',
   'distort', 'distortScale', 'distortSpeed', 'wiggle', 'wiggleFreq'];
+// develop settings live with the SOURCE clip — they never travel with
+// creative grades (copy/paste/apply-to-all/presets)
+const RAW_KEYS = ['rawExposure', 'rawTemp', 'rawTint'];
+const pickRaw = (g) => { const o = {}; for (const k of RAW_KEYS) o[k] = g?.[k] || 0; return o; };
 let gradeClipboard = null;   // copied grade (survives clip switches, not reloads)
 // strip visibility (persisted so the layout survives reloads)
 let showThumbs = localStorage.getItem('eddit.colorThumbs') !== '0';
@@ -49,6 +55,13 @@ export function initColor(eng) {
 
   // input transform
   el('inputTransform').onchange = (e) => { const g = grade(); if (g) { g.inputTransform = e.target.value; commit(); } };
+
+  // RAW develop — back to as-shot metadata
+  if (el('rawAsShot')) el('rawAsShot').onclick = () => {
+    const g = grade(); if (!g) return;
+    for (const k of RAW_KEYS) g[k] = 0;
+    syncUI(true); commit();
+  };
 
   // adjust + fx sliders
   for (const key of SLIDER_KEYS) {
@@ -127,7 +140,7 @@ export function initColor(eng) {
   if (cp) cp.onclick = () => {
     if (!state.selectedClipId || !grade()) return toast('Select a clip first', true);
     if (!gradeClipboard) return toast('Nothing copied yet', true);
-    state.grades[state.selectedClipId] = structuredClone(gradeClipboard);
+    state.grades[state.selectedClipId] = { ...structuredClone(gradeClipboard), ...pickRaw(grade()) };
     syncUI(); commit(); toast('Grade pasted');
   };
   const ca = el('cAll');
@@ -135,7 +148,7 @@ export function initColor(eng) {
     const g = grade(); if (!g) return toast('Select a clip first', true);
     const ids = new Set();
     for (const seg of videoProgram()) if (seg.clip.id !== state.selectedClipId) ids.add(seg.clip.id);
-    for (const id of ids) state.grades[id] = structuredClone(g);
+    for (const id of ids) state.grades[id] = { ...structuredClone(g), ...pickRaw(state.grades[id]) };
     commit(); toast(ids.size ? `Grade applied to ${ids.size} other clip${ids.size === 1 ? '' : 's'}` : 'No other clips');
   };
   const cb = el('cBypass');
@@ -225,6 +238,14 @@ export function initColor(eng) {
 }
 
 function grade() { return state.selectedClipId ? state.grades[state.selectedClipId] : null; }
+function selMedia() {
+  if (!state.selectedClipId) return null;
+  for (const tr of state.tracks.video) {
+    const c = tr.clips.find((x) => x.id === state.selectedClipId);
+    if (c) return getMedia(c.mediaId);
+  }
+  return null;
+}
 
 // the Color tab always grades SOMETHING: with no (valid) selection, pick the
 // program clip nearest the playhead — the empty splash is for empty timelines
@@ -254,6 +275,7 @@ function sectionActivity(g) {
   return {
     wheels: g.inputTransform !== 'none' || ['lift', 'gamma', 'gain', 'offset'].some((k) => (g[k] || []).some((v) => Math.abs(v) > 1e-4)),
     adjust: ['exposure', 'contrast', 'saturation', 'temp', 'tint', 'pivot', 'toneSh', 'toneHi', 'toneMap'].some((k) => Math.abs((g[k] ?? d[k]) - d[k]) > 1e-4),
+    raw: RAW_KEYS.some((k) => Math.abs(g[k] ?? 0) > 1e-4),
     curves: ['rgb', 'r', 'g', 'b'].some((ch) => { const c = g.curves?.[ch]; return c && (c.length !== 2 || c[0].x !== 0 || c[0].y !== 0 || c[1].x !== 1 || c[1].y !== 1); }),
     hsl: [...(g.hsl || []), ...(g.hslHue || []), ...(g.hslLum || [])].some((v) => Math.abs(v) > 1e-4),
     mask: !!(g.maskQ?.on || (g.maskW?.shape && g.maskW.shape !== 'off')),
@@ -395,7 +417,7 @@ function savePreset() {
   const g = grade(); if (!g) return toast('Select a clip first', true);
   const name = (prompt('Preset name', 'My look') || '').trim();
   if (!name) return;
-  const snap = structuredClone({ ...g, lut: null });   // lutName re-resolves on apply
+  const snap = structuredClone({ ...g, lut: null, rawExposure: 0, rawTemp: 0, rawTint: 0 });   // lutName re-resolves on apply
   const i = gradePresets.findIndex((p) => p.name === name);
   if (i >= 0) gradePresets[i] = { name, grade: snap }; else gradePresets.push({ name, grade: snap });
   kvSet('gradePresets', gradePresets).catch(() => {});
@@ -404,7 +426,7 @@ function savePreset() {
 }
 function applyPreset(p) {
   if (!state.selectedClipId || !grade()) return toast('Select a clip first', true);
-  const ng = structuredClone(p.grade);
+  const ng = { ...structuredClone(p.grade), ...pickRaw(grade()) };
   if (ng.lutName) { const l = findLut(ng.lutName); if (l) { try { ng.lut = l.get(); } catch {} } }
   state.grades[state.selectedClipId] = ng;
   syncUI(); commit();
@@ -649,6 +671,17 @@ export function syncUI(force) {
   const disabled = !g;
   el('colorEmpty').style.display = disabled ? '' : 'none';
   updateSubDots();
+  // RAW develop panel exists only for RAW sources
+  const rm = g ? selMedia() : null;
+  const isRaw = !!(rm && isMcraw(rm.name));
+  const rbtn = el('csRawBtn');
+  if (rbtn) {
+    rbtn.classList.toggle('hidden', !isRaw);
+    if (!isRaw && rbtn.classList.contains('on')) document.querySelector('#colorSub button[data-cs="wheels"]')?.click();
+  }
+  if (el('rawInfo')) el('rawInfo').textContent = isRaw
+    ? [rm.rawIso && ('ISO ' + rm.rawIso), rm.rawShutter && ('1/' + Math.round(1e9 / rm.rawShutter) + ' s')].filter(Boolean).join(' · ')
+    : '';
   if (!g) return;
   el('inputTransform').value = g.inputTransform;
   const dflt = defaultGrade();

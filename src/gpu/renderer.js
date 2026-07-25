@@ -520,8 +520,10 @@ export class Renderer {
     if (g) {
       const hsl = g.hsl || [], hslH = g.hslHue || [], hslL = g.hslLum || [];
       const hasHsl = [...hsl, ...hslH, ...hslL].some((v) => Math.abs(v || 0) > 1e-4);
-      f.set([g.exposure, g.contrast, g.saturation, g.pivot], 0);       // p0
-      f.set([g.temp, g.tint, g.lutMix, inputMap[g.inputTransform] || 0], 4); // p1
+      // RAW develop offsets compose into the same controls — exposure is a
+      // linear-light gain, so the sum is mathematically the develop result
+      f.set([g.exposure + (g.rawExposure || 0), g.contrast, g.saturation, g.pivot], 0);       // p0
+      f.set([g.temp + (g.rawTemp || 0), g.tint + (g.rawTint || 0), g.lutMix, inputMap[g.inputTransform] || 0], 4); // p1
       f.set([this.hasLut ? 1 : 0, this.hasCurve ? 1 : 0, this.lutSize || 2, hasHsl ? 1 : 0], 8); // p2
       f.set([...g.lift, 0], 12);
       f.set([...g.gamma, 0], 16);

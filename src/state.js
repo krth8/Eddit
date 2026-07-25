@@ -8,6 +8,9 @@ export function defaultGrade() {
   return {
     inputTransform: 'none',
     exposure: 0, contrast: 0, saturation: 1, temp: 0, tint: 0, pivot: 0.435,
+    // RAW develop offsets (RAW sources only) — composed into exposure/temp/
+    // tint ahead of the creative grade, and never carried by presets/copy
+    rawExposure: 0, rawTemp: 0, rawTint: 0,
     lift: [0, 0, 0], gamma: [0, 0, 0], gain: [0, 0, 0], offset: [0, 0, 0],
     lut: null, lutName: null, lutMix: 1,
     curves: {

@@ -1,5 +1,5 @@
 // Bootstrap: WebGPU renderer + playback engine + tab wiring + transport + keys.
-import { state, bus, timelineDuration, videoProgram, addTitle, toggleMarker, rippleDelete } from './state.js';
+import { state, bus, timelineDuration, videoProgram, addTitle, toggleMarker, rippleDelete, appendClip, defaultGrade } from './state.js';
 import { el, $$, fmtTC, toast } from './util.js';
 import { Renderer } from './gpu/renderer.js';
 import { Engine } from './timeline/engine.js';
@@ -163,7 +163,7 @@ async function boot() {
   });
 
   bus.on('frame:drawn', onFrameDrawn);
-  window.__eddit = { ...window.__eddit, renderer, engine, state, bus };
+  window.__eddit = { ...window.__eddit, renderer, engine, state, bus, appendClip, defaultGrade };
 
   // diagnostics overlay (tap the ffmpeg pill or the build tag)
   if (el('brandLogo')) el('brandLogo').onclick = openDiag;   // quiet diagnostics entry

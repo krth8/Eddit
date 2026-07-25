@@ -34,6 +34,7 @@ function serialize(state) {
     id: m.id, name: m.name, size: m.file?.size || m.size || 0, path: m.path || '',
     width: m.width, height: m.height, duration: m.duration, thumb: m.thumb,
     strip: m.strip || null,
+    rawIso: m.rawIso || 0, rawShutter: m.rawShutter || 0,
     proxyKey: m.proxyKey || null, proxyW: m.proxyW, proxyH: m.proxyH,
     // FileSystemFileHandle is structured-clonable → survives in IndexedDB, so
     // restarts can re-acquire the original and resume proxy builds

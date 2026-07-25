@@ -56,7 +56,7 @@ export async function openMcraw(file) {
   }
   const duration = r.count > 1 ? rel(r.count - 1) + 1 / fps : 1 / fps;
   return {
-    meta: r.meta, count: r.count, fps, duration, ts, rel,
+    meta: r.meta, f0: r.f0 || {}, count: r.count, fps, duration, ts, rel,
     width: r.f0.width || 0, height: r.f0.height || 0,
     audioRate: r.audioRate || 0, audioCh: r.audioCh || 0,
     frame: (i, o = {}) => rpc({ op: 'frame', h: r.h, i, full: o.full ? 1 : 0, fmt: o.fmt | 0, outW: o.outW | 0, outH: o.outH | 0 }),

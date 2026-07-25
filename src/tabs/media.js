@@ -158,6 +158,8 @@ async function importFiles(files) {
       try {
         const s = await openMcraw(file);
         m.width = s.width; m.height = s.height; m.duration = s.duration;
+        if (s.f0.iso) m.rawIso = s.f0.iso;
+        if (s.f0.exposureTime) m.rawShutter = s.f0.exposureTime;   // ns
         s.close();
       } catch (e) { console.warn('[import] mcraw probe failed', file.name, e); }
       updateCard(m);
