@@ -106,6 +106,7 @@ export async function initMedia(eng) {
     if (m) { m.proxyReady = false; m.thumb = null; m.strip = null; queueProxy(m, true); }   // also refresh derived assets
   };
   el('removeMediaBtn').onclick = () => { if (state.selectedMediaId) removeMedia(state.selectedMediaId); };
+  initMultiBar();
 
   bus.on('media:changed', renderGrid);
   // fix crossed thumb/strip entries from older builds as projects load
@@ -337,9 +338,76 @@ function makeCard(m) {
     <div class="meta"><div class="cap"></div><div class="sub"></div></div>
     <span class="clip-del" title="Remove from project">✕</span>`;
   d.querySelector('.clip-del').onclick = (e) => { e.stopPropagation(); removeMedia(m.id); };
-  d.onclick = () => selectMedia(m.id);
+  d.onclick = (e) => cardClick(m, e);
+  // touch: long-press enters selection mode, then taps toggle
+  d.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const x0 = e.clientX, y0 = e.clientY;
+    let moved = false;
+    const t = setTimeout(() => { if (!moved) { mselMode = true; msToggle(m.id); } }, 450);
+    const mv = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) { moved = true; clearTimeout(t); } };
+    const done = () => { clearTimeout(t); window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', done); window.removeEventListener('pointercancel', done); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', done); window.addEventListener('pointercancel', done);
+  });
   wireHoverScrub(m, d.querySelector('.thumbbox'));
   return d;
+}
+
+// ---- multi-select (ctrl/cmd-click, shift-click range, touch long-press) ----
+const msel = new Set();
+let mselAnchor = null;
+let mselMode = false;   // touch selection mode: plain taps toggle
+
+function gridOrder() { return [...el('grid').children].map((c) => c.dataset.id); }
+function msToggle(id) {
+  if (msel.has(id)) msel.delete(id); else { msel.add(id); mselAnchor = id; }
+  if (!msel.size) mselMode = false;
+  msRefresh();
+}
+function msClear() { msel.clear(); mselMode = false; mselAnchor = null; msRefresh(); }
+function msRefresh() {
+  for (const [id, card] of cards) card.classList.toggle('msel', msel.has(id));
+  const bar = el('msBar'); if (!bar) return;
+  bar.classList.toggle('on', msel.size > 0);
+  el('msCount').textContent = `${msel.size} selected`;
+  if (msel.size) el('msTransform').selectedIndex = 0;
+}
+function cardClick(m, e) {
+  if (e.ctrlKey || e.metaKey) { msToggle(m.id); return; }
+  if (e.shiftKey && mselAnchor) {
+    const order = gridOrder();
+    const a = order.indexOf(mselAnchor), b = order.indexOf(m.id);
+    if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) msel.add(order[i]);
+    msRefresh();
+    return;
+  }
+  if (mselMode) { msToggle(m.id); return; }
+  if (msel.size) msClear();
+  selectMedia(m.id);
+}
+function initMultiBar() {
+  if (!el('msBar')) return;
+  el('msClear').onclick = msClear;
+  el('msDelete').onclick = () => {
+    const n = msel.size; if (!n) return;
+    for (const id of [...msel]) removeMedia(id);
+    msClear();
+    toast(`Removed ${n} clip${n === 1 ? '' : 's'}`);
+  };
+  // per-media input transform default — mixed-camera projects set Canon and
+  // Sony batches separately; existing timeline clips of the media follow
+  el('msTransform').onchange = () => {
+    const v = el('msTransform').value; if (!v) return;
+    let clipN = 0;
+    for (const id of msel) { const m = getMedia(id); if (m) m.inputTransform = v; }
+    for (const tr of state.tracks.video) for (const c of tr.clips) {
+      if (c.mediaId && msel.has(c.mediaId) && state.grades[c.id]) { state.grades[c.id].inputTransform = v; clipN++; }
+    }
+    if (engine) engine.markGradeDirty();
+    bus.emit('timeline:changed');
+    bus.emit('media:changed');
+    toast(`Input transform set for ${msel.size} clip${msel.size === 1 ? '' : 's'}` + (clipN ? ` (${clipN} on the timeline)` : ''));
+  };
 }
 
 // ---- hover scrub (desktop): sweep the mouse across a card's thumb to preview
@@ -589,6 +657,7 @@ export function updateCard(m, card) {
   const pend = st === 'queued' || st === 'building';   // unlinked = idle, no spinner
   card.className = 'clip'
     + (m.id === state.selectedMediaId ? ' active' : '')
+    + (msel.has(m.id) ? ' msel' : '')
     + (pend ? ' proxy-pending' : '')
     + (st === 'building' ? ' proxy-building' : '')
     + (st === 'unlinked' ? ' proxy-unlinked' : '')
@@ -784,6 +853,7 @@ export async function restore(proj) {
 function removeMedia(id) {
   const m = getMedia(id); if (!m) return;
   m.removed = true;
+  if (msel.delete(id)) msRefresh();
   // abort an IN-FLIGHT conversion — without this the transcode kept running
   // under the hood after the clip left the pool
   if (m._proxyCtl) {

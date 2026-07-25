@@ -175,6 +175,42 @@ export function ensureAudioTracks(n) { while (state.tracks.audio.length < n) sta
 
 export function trackListFor(kind) { return kind === 'audio' ? state.tracks.audio : state.tracks.video; }
 
+// Overwrite semantics: a placed clip owns its span. Same-track neighbours are
+// trimmed out of the way, split when it lands mid-clip, deleted when fully
+// covered — two clips never overlap on a track.
+export function resolveOverwrite(track, placed) {
+  if (!track || !placed) return;
+  const ps = placed.start, pe = clipEnd(placed);
+  for (const c of [...track.clips]) {
+    if (c.id === placed.id) continue;
+    const cs = c.start, ce = clipEnd(c);
+    if (ce <= ps + 1e-4 || cs >= pe - 1e-4) continue;
+    const sp = c.speed || 1;
+    if (cs >= ps - 1e-4 && ce <= pe + 1e-4) {
+      // fully covered — the clip is gone
+      const i = track.clips.indexOf(c); if (i >= 0) track.clips.splice(i, 1);
+      delete state.grades[c.id];
+      if (state.selectedClipId === c.id) state.selectedClipId = null;
+    } else if (cs < ps - 1e-4 && ce > pe + 1e-4) {
+      // dropped in the middle — split into head + tail remnants
+      const tail = structuredClone(c);
+      tail.id = uid('c');
+      tail.in = c.in + (pe - cs) * sp;
+      tail.start = pe;
+      tail.fadeIn = 0; tail.transIn = 0;
+      c.out = c.in + (ps - cs) * sp;
+      c.fadeOut = 0;
+      track.clips.push(tail);
+      state.grades[tail.id] = structuredClone(state.grades[c.id] || defaultGrade());
+    } else if (cs < ps) {
+      c.out = c.in + (ps - cs) * sp;    // tail covered
+    } else {
+      c.in = c.in + (pe - cs) * sp;     // head covered
+      c.start = pe;
+    }
+  }
+}
+
 // add a clip to a specific track index; returns the clip
 export function addClipAt(mediaId, { kind = 'video', trackIndex = 0, start = 0, inS = 0, outS = null } = {}) {
   const m = getMedia(mediaId); if (!m) return null;
@@ -182,7 +218,10 @@ export function addClipAt(mediaId, { kind = 'video', trackIndex = 0, start = 0, 
   if (kind === 'video') ensureVideoTracks(trackIndex + 1); else ensureAudioTracks(trackIndex + 1);
   const c = makeClip(mediaId, { kind, start, in: inS, out: outS == null ? (m.duration || 5) : outS });
   list[trackIndex].clips.push(c);
-  state.grades[c.id] = defaultGrade();
+  resolveOverwrite(list[trackIndex], c);
+  const g = defaultGrade();
+  if (m.inputTransform) g.inputTransform = m.inputTransform;   // media-level default (mixed-camera projects)
+  state.grades[c.id] = g;
   bus.emit('timeline:changed');
   return c;
 }

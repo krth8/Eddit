@@ -4,6 +4,7 @@ import {
   state, allClips, getMedia, getClip, findClipRef, removeClip, addClipAt,
   clipTLDur, clipEnd, srcDur, timelineDuration, videoProgram, programAt,
   ensureVideoTracks, ensureAudioTracks, defaultTransform, isGraded, bus,
+  resolveOverwrite,
 } from '../state.js';
 import { el, $$, fmtShort, fmtTC, clamp, toast } from '../util.js';
 import { getPeaks, drawWave } from './waveform.js';
@@ -298,6 +299,7 @@ function moveClip(id, e) {
   };
   const up = () => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    resolveOverwrite(ref.track, c);   // landing on other clips trims/splits/deletes them
     bus.emit('timeline:changed');
   };
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
@@ -323,15 +325,25 @@ function edgeTrim(id, side, e) {
   const sp = c.speed || 1;
   const startX = e.clientX, in0 = c.in, out0 = c.out, start0 = c.start;
   const clipEl = document.querySelector(`.tl-clip[data-id="${id}"]`);
+  // trims stop at the neighbours — extending an edge never buries another clip
+  const ref = findClipRef(id);
+  let prevEnd = 0, nextStart = Infinity;
+  if (ref) for (const o of ref.track.clips) {
+    if (o.id === id) continue;
+    const oe = o.start + clipTLDur(o);
+    if (oe <= start0 + 1e-4) prevEnd = Math.max(prevEnd, oe);
+    if (o.start >= start0 + clipTLDur(c) - 1e-4) nextStart = Math.min(nextStart, o.start);
+  }
   const mv = (ev) => {
     const dTL = (ev.clientX - startX) / pxPerSec;      // timeline seconds moved
     if (side === 'l') {
       const maxTL = clipTLDur(c) - 0.05;
-      const dt = clamp(dTL, -in0 / sp, maxTL);
+      const dt = clamp(dTL, Math.max(-in0 / sp, prevEnd - start0), maxTL);
       c.in = Math.max(0, in0 + dt * sp); c.start = start0 + dt;
     } else {
       const srcMax = (media?.duration || out0);
-      c.out = clamp(out0 + dTL * sp, c.in + 0.05, srcMax);
+      const outCap = nextStart === Infinity ? srcMax : Math.min(srcMax, c.in + (nextStart - c.start) * sp);
+      c.out = clamp(out0 + dTL * sp, c.in + 0.05, outCap);
     }
     if (clipEl) {
       clipEl.style.left = c.start * pxPerSec + 'px';
@@ -609,6 +621,7 @@ function poolPointerDrag(m, e, thumb) {
   const x0 = e.clientX, y0 = e.clientY;
   let dragging = false, ghost = null;
   const trackAt = (x, y) => { const el2 = document.elementFromPoint(x, y); return el2 && el2.closest ? el2.closest('.tl-track') : null; };
+  let laneGhost = null;   // clip-length preview rect inside the timeline
   const start = (ev) => {
     dragging = true;
     thumb.classList.add('dragging');
@@ -617,7 +630,7 @@ function poolPointerDrag(m, e, thumb) {
   };
   const cleanup = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel);
-    thumb.classList.remove('dragging'); ghost?.remove();
+    thumb.classList.remove('dragging'); ghost?.remove(); laneGhost?.remove(); laneGhost = null;
     document.querySelectorAll('.tl-lane.drop').forEach((l) => l.classList.remove('drop'));
     hideDropline();
   };
@@ -636,9 +649,18 @@ function poolPointerDrag(m, e, thumb) {
     document.querySelectorAll('.tl-lane.drop').forEach((l) => l.classList.remove('drop'));
     if (track) {
       track.parentElement.classList.add('drop');
-      const x = ev.clientX - el('tlInner').getBoundingClientRect().left;
-      showDroplineAt(Math.max(0, snap(x / pxPerSec)));
-    } else hideDropline();
+      const innerR = el('tlInner').getBoundingClientRect();
+      const t = Math.max(0, snap((ev.clientX - innerR.left) / pxPerSec));
+      showDroplineAt(t);
+      // ghost rect previews the clip's real footprint before the drop
+      if (!laneGhost) { laneGhost = document.createElement('div'); laneGhost.className = 'tl-ghostclip'; el('tlInner').appendChild(laneGhost); }
+      const tr = track.getBoundingClientRect();
+      laneGhost.style.left = t * pxPerSec + 'px';
+      laneGhost.style.width = Math.max(8, (m.duration || 5) * pxPerSec) + 'px';
+      laneGhost.style.top = (tr.top - innerR.top) + 'px';
+      laneGhost.style.height = tr.height + 'px';
+      laneGhost.style.display = '';
+    } else { hideDropline(); if (laneGhost) laneGhost.style.display = 'none'; }
   };
   const up = (ev) => {
     cleanup();
