@@ -5,6 +5,7 @@ import { el, toast } from './util.js';
 import { state, bus } from './state.js';
 import { listProjects, getActiveId, setActiveId, createProject, openProject, renameProject, duplicateProject, deleteProject, saveProject } from './store.js';
 import { resetForNewProject, restore as restoreMedia } from './tabs/media.js';
+import { APP_VERSION, RELEASE_NOTES, semverGt } from './version.js';
 
 let onSwitch = null; // callback(proj) to re-seed engine/history after a load
 // the project actually LOADED into the editor this session. Boot shows the
@@ -12,8 +13,40 @@ let onSwitch = null; // callback(proj) to re-seed engine/history after a load
 // treated as open, and autosave must never clobber a project we never loaded.
 let loadedId = null;
 
+// "What's new" dropdown on the projects overview — full release history,
+// newest first. Auto-expands when this build is newer than the version last
+// seen in this browser (then records it); a green NEW badge marks versions
+// you haven't seen yet.
+function buildWhatsNew() {
+  const slot = el('projNews');
+  if (!slot || !RELEASE_NOTES.length) return;
+  let seen = null;
+  try { seen = localStorage.getItem('eddit.version'); } catch {}
+  const isUpdate = semverGt(APP_VERSION, seen);
+  try { localStorage.setItem('eddit.version', APP_VERSION); } catch {}
+  const isFresh = (v) => (seen ? semverGt(v, seen) : false);
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const notes = RELEASE_NOTES.map((n) => `
+    <div class="splash-note">
+      <div class="splash-note-h"><b>v${n.v}</b>${n.date ? `<span class="splash-note-date">${n.date}</span>` : ''}${n.title ? `<span>· ${esc(n.title)}</span>` : ''}${isFresh(n.v) ? '<span class="pdrop-badge">new</span>' : ''}</div>
+      <ul class="splash-note-list">${n.items.map((it) => `<li>${esc(it)}</li>`).join('')}</ul>
+    </div>`).join('');
+  const root = document.createElement('div');
+  root.className = 'pdrop splash-news' + (isUpdate ? ' open' : '');
+  root.innerHTML = `
+    <div class="pdrop-head${isUpdate ? ' open' : ''}">
+      <svg class="ic" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+      <span>What's new</span>
+    </div>
+    <div class="pdrop-bodywrap"><div class="pdrop-body">${notes}</div></div>`;
+  const head = root.querySelector('.pdrop-head');
+  head.onclick = () => { const o = !root.classList.contains('open'); root.classList.toggle('open', o); head.classList.toggle('open', o); };
+  slot.replaceChildren(root);
+}
+
 export function initProjects(afterLoad) {
   onSwitch = afterLoad;
+  buildWhatsNew();
   el('projBtn').onclick = openBrowser;
   el('projClose').onclick = closeBrowser;
   el('projOverlay').addEventListener('click', (e) => { if (e.target === el('projOverlay')) closeBrowser(); });

@@ -13,18 +13,23 @@ import { initColor, syncUI as colorSync, renderStrip } from './tabs/color.js';
 import { initExport, refresh as exportRefresh } from './tabs/export.js';
 import { initFx } from './tabs/fx.js';
 import { initTimeline, render as tlRender, renderPlayhead, renderPool, renderInspector, selectClip, deleteSelected } from './timeline/timeline.js';
+import { APP_VERSION } from './version.js';
 
-const BUILD = "v0.9.0";
+const BUILD = 'v' + APP_VERSION;
 
 // ---- PWA install: surfaced as a button on the Projects landing screen — the
 // omnibox hint is easy to miss. beforeinstallprompt can fire before boot()
 // finishes, so capture at module scope; it never fires when already installed.
 let installEv = null;
+// running AS the installed app (any app-like display mode, incl. iOS) — the
+// install button must never show inside the PWA itself
+const isPWA = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui), (display-mode: window-controls-overlay)').matches
+  || navigator.standalone === true;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   installEv = e;
   const b = document.getElementById('pwaInstall');
-  if (b && !matchMedia('(display-mode: standalone)').matches) b.hidden = false;
+  if (b && !isPWA()) b.hidden = false;
 });
 window.addEventListener('appinstalled', () => {
   const b = document.getElementById('pwaInstall');
@@ -136,6 +141,7 @@ async function boot() {
   syncEmptyOverlay();
   bootBrowser().catch(() => {});
   const ib = el('pwaInstall');
+  if (ib && isPWA()) { ib.hidden = true; installEv = null; }
   if (ib) ib.onclick = async () => {
     if (!installEv) return;
     installEv.prompt();
