@@ -65,6 +65,7 @@
         <div class="pp-row"><label>Aspect</label><select id="pAspect"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select></div>
         <div class="pp-row"><label>Resolution</label><select id="pRes"><option value="720">720p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
         <div class="pp-row"><label>Frame rate</label><select id="pFps"><option value="24">24</option><option value="25">25</option><option value="30">30</option><option value="50">50</option><option value="60">60</option></select></div>
+        <div class="pp-row"><label>Color</label><select id="pColor"><option value="srgb">sRGB (web)</option><option value="rec709">Rec.709 (broadcast)</option></select></div>
       </div>
     </div>
     <span id="buildTag" class="pill" style="font-variant-numeric:tabular-nums" title="Version"></span>
@@ -360,6 +361,8 @@
             <option value="clog2">Canon C-Log2 → Rec.709</option>
             <option value="slog3">Sony S-Log3 → Rec.709</option>
             <option value="logc">ARRI LogC → Rec.709</option>
+            <option value="vlog">Panasonic V-Log → Rec.709</option>
+            <option value="flog">Fujifilm F-Log → Rec.709</option>
           </select>
         </div>
         <div class="glass card">

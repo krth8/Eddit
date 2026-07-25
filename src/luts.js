@@ -3,7 +3,7 @@
 //    function (math, not copyrightable) -> Rec.709. These are the real
 //    "Log input" LUTs, grouped by manufacturer like DaVinci Resolve.
 //  · Creative looks are generated procedurally.
-import { LOG, toSRGB } from './gpu/logtransforms.js';
+import { LOG, GAMUT, toSRGB } from './gpu/logtransforms.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
@@ -20,9 +20,16 @@ function build(size, fn) {
   return { size, data };
 }
 
-// Log code value -> Rec.709 display, per channel
-function conversion(decode) {
-  return build(33, (r, g, b) => [toSRGB(decode(r)), toSRGB(decode(g)), toSRGB(decode(b))]);
+// Log code value -> scene linear -> gamut matrix -> Rec.709 display
+function conversion(key) {
+  const decode = LOG[key], M = GAMUT[key];
+  return build(33, (r, g, b) => {
+    const lr = decode(r), lg = decode(g), lb = decode(b);
+    return [
+      toSRGB(M[0] * lr + M[1] * lg + M[2] * lb),
+      toSRGB(M[3] * lr + M[4] * lg + M[5] * lb),
+      toSRGB(M[6] * lr + M[7] * lg + M[8] * lb)];
+  });
 }
 
 // Lazy-built so page load isn't blocked; each entry exposes get() -> {size,data}.
@@ -43,28 +50,28 @@ export const LUT_CATEGORIES = [
   USER_LUTS,
   {
     name: 'Conversion · Sony', luts: [
-      { name: 'S-Log3 → Rec.709', swatch: 'linear-gradient(90deg,#5a5a5a,#efe7d8)', get: lazy(() => conversion(LOG.slog3)) },
+      { name: 'S-Log3 → Rec.709', swatch: 'linear-gradient(90deg,#5a5a5a,#efe7d8)', get: lazy(() => conversion('slog3')) },
     ],
   },
   {
     name: 'Conversion · Canon', luts: [
-      { name: 'C-Log3 → Rec.709', swatch: 'linear-gradient(90deg,#585858,#f0e4d0)', get: lazy(() => conversion(LOG.clog3)) },
-      { name: 'C-Log2 → Rec.709', swatch: 'linear-gradient(90deg,#585858,#f0e4d0)', get: lazy(() => conversion(LOG.clog2)) },
+      { name: 'C-Log3 → Rec.709', swatch: 'linear-gradient(90deg,#585858,#f0e4d0)', get: lazy(() => conversion('clog3')) },
+      { name: 'C-Log2 → Rec.709', swatch: 'linear-gradient(90deg,#585858,#f0e4d0)', get: lazy(() => conversion('clog2')) },
     ],
   },
   {
     name: 'Conversion · ARRI', luts: [
-      { name: 'LogC3 (EI800) → Rec.709', swatch: 'linear-gradient(90deg,#565656,#e8e0d2)', get: lazy(() => conversion(LOG.logc)) },
+      { name: 'LogC3 (EI800) → Rec.709', swatch: 'linear-gradient(90deg,#565656,#e8e0d2)', get: lazy(() => conversion('logc')) },
     ],
   },
   {
     name: 'Conversion · Panasonic', luts: [
-      { name: 'V-Log → Rec.709', swatch: 'linear-gradient(90deg,#555,#e6ddca)', get: lazy(() => conversion(LOG.vlog)) },
+      { name: 'V-Log → Rec.709', swatch: 'linear-gradient(90deg,#555,#e6ddca)', get: lazy(() => conversion('vlog')) },
     ],
   },
   {
     name: 'Conversion · Fujifilm', luts: [
-      { name: 'F-Log → Rec.709', swatch: 'linear-gradient(90deg,#555,#e6ddca)', get: lazy(() => conversion(LOG.flog)) },
+      { name: 'F-Log → Rec.709', swatch: 'linear-gradient(90deg,#555,#e6ddca)', get: lazy(() => conversion('flog')) },
     ],
   },
 ];

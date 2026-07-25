@@ -292,21 +292,26 @@ function setupTransport() {
       el('pAspect').value = state.project?.format || '16:9';
       el('pRes').value = String(state.project?.height || 1080);
       el('pFps').value = String(state.fps || 30);
+      el('pColor').value = state.project?.color || 'srgb';
     };
     el('tlProjBtn').onclick = () => { syncFromState(); pw.classList.toggle('open'); };
     document.addEventListener('pointerdown', (e) => {
       if (pw.classList.contains('open') && !pw.contains(e.target)) pw.classList.remove('open');
     });
     const applyProj = () => {
-      state.project = { format: el('pAspect').value, height: parseInt(el('pRes').value, 10) || 1080 };
+      state.project = { format: el('pAspect').value, height: parseInt(el('pRes').value, 10) || 1080, color: el('pColor').value };
       state.fps = parseInt(el('pFps').value, 10) || 30;
+      renderer.setOutputColor(state.project.color);
       if (el('exAspect')) el('exAspect').value = state.project.format;
       if (el('exRes')) el('exRes').value = String(state.project.height);
       if (el('exFps')) el('exFps').value = String(state.fps);
       engine.seek(state.playhead);          // re-size the canvas/player box
       bus.emit('timeline:changed');         // autosave + export refresh
     };
-    el('pAspect').onchange = applyProj; el('pRes').onchange = applyProj; el('pFps').onchange = applyProj;
+    el('pAspect').onchange = applyProj; el('pRes').onchange = applyProj; el('pFps').onchange = applyProj; el('pColor').onchange = applyProj;
+    // restored projects carry their colour choice into the renderer
+    bus.on('project:restored', () => renderer.setOutputColor(state.project?.color || 'srgb'));
+    renderer.setOutputColor(state.project?.color || 'srgb');
     // the export tab's fps select drives the editor fps too (it used to be
     // export-only, leaving frame-stepping at 30)
     if (el('exFps')) el('exFps').addEventListener('change', () => { state.fps = parseInt(el('exFps').value, 10) || 30; bus.emit('timeline:changed'); });

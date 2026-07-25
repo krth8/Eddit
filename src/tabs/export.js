@@ -64,6 +64,26 @@ function exportSrc(m) {
   if (m.playable && m.url) return m.url;
   return (m.proxyReady && m.proxyUrl) || m.url;
 }
+
+// Overwrite the transfer characteristic in every colr(nclx) box inside moov.
+// In-place: sizes don't change, so chunk offsets stay valid.
+function retagColr(u8, transfer) {
+  const u32 = (i) => (u8[i] << 24 | u8[i + 1] << 16 | u8[i + 2] << 8 | u8[i + 3]) >>> 0;
+  const tag = (i) => String.fromCharCode(u8[i], u8[i + 1], u8[i + 2], u8[i + 3]);
+  let moovS = -1, moovE = -1;
+  for (let p = 0; p + 8 <= u8.length;) {
+    const size = u32(p);
+    if (tag(p + 4) === 'moov') { moovS = p; moovE = p + size; break; }
+    if (size < 8) break;
+    p += size;
+  }
+  if (moovS < 0) return;
+  for (let i = moovS; i < moovE - 12; i++) {
+    if (tag(i) === 'colr' && tag(i + 4) === 'nclx') {
+      u8[i + 10] = (transfer >> 8) & 0xff; u8[i + 11] = transfer & 0xff;
+    }
+  }
+}
 function awaitEvent(target, ev, timeout = 4000) {
   return new Promise((res) => { const t = setTimeout(res, timeout); target.addEventListener(ev, () => { clearTimeout(t); res(); }, { once: true }); });
 }
@@ -325,7 +345,12 @@ async function render() {
     muxer.finalize();
     encoder.close();
 
-    const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+    // colour tagging: the muxer writes colr (nclx) from the encoder's
+    // metadata, which always reports bt709 transfer. That is correct for a
+    // Rec.709 project; a web/sRGB project encoded the sRGB curve, so retag.
+    const mp4 = new Uint8Array(muxer.target.buffer);
+    if ((state.project?.color || 'srgb') === 'srgb') retagColr(mp4, 13);
+    const blob = new Blob([mp4], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     el('exDownload').href = url;
     el('exResult').classList.remove('hidden');

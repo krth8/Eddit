@@ -4,6 +4,10 @@
 // saturation -> curves (1D) -> 3D LUT (trilinear) -> linear->sRGB out.
 import { identityCube } from './lut.js';
 import { curveEval } from '../util.js';
+import { GAMUT } from './logtransforms.js';
+
+// row-major 3x3 -> WGSL mat3x3 constructor (column vectors)
+const m3 = (M) => `mat3x3<f32>(vec3(${M[0]}, ${M[3]}, ${M[6]}), vec3(${M[1]}, ${M[4]}, ${M[7]}), vec3(${M[2]}, ${M[5]}, ${M[8]}))`;
 
 const WGSL = /* wgsl */`
 struct Grade {
@@ -58,7 +62,15 @@ fn linToSrgb(c: vec3<f32>) -> vec3<f32> {
   let cc = clamp(c, vec3(0.0), vec3(1.0));
   return select(cc*12.92, 1.055*pow(cc, vec3(1.0/2.4))-0.055, cc > vec3(0.0031308));
 }
-// --- LOG -> linear decodes (normalized 0..1 code value) ---
+// project output encode: sRGB for web, pure 2.4 gamma for Rec.709/BT.1886
+// delivery (tf2.w carries the project's choice; curves stay in sRGB domain)
+fn linToOut(c: vec3<f32>) -> vec3<f32> {
+  if (G.tf2.w > 0.5) { return pow(clamp(c, vec3(0.0), vec3(1.0)), vec3(1.0/2.4)); }
+  return linToSrgb(c);
+}
+// --- LOG -> linear decodes (normalized 0..1 code value), makers' published
+// transfer functions — identical math to logtransforms.js, which bakes the
+// conversion LUTs from the same constants ---
 fn slog3(x: f32) -> f32 {
   if (x >= 0.1673609920) { return (pow(10.0, ((x*1023.0-420.0)/261.5))*(0.19)) - 0.01; }
   return (x*1023.0-95.0)*0.01125000/(171.2102946929-95.0);
@@ -67,22 +79,37 @@ fn logc(x: f32) -> f32 {
   if (x > 0.1496582) { return (pow(10.0, (x-0.385537)/0.247190)-0.052272)/5.555556; }
   return (x-0.092809)/5.367655;
 }
-// Canon C-Log3 / C-Log2 (approximate, normalized) — refine with official LUTs later.
 fn clog3(x: f32) -> f32 {
-  let v = x;
-  if (v < 0.097465473) { return (v-0.12512248)/2.3069815; }
-  return (pow(10.0,(v-0.12240537)/0.36726845)-1.0)/14.98325 * 0.9 + 0.0;
+  if (x < 0.097465473) { return -(pow(10.0,(0.12783901-x)/0.36726845)-1.0)/14.98325; }
+  if (x <= 0.15277897) { return (x-0.12512219)/2.3069815; }
+  return (pow(10.0,(x-0.12240537)/0.36726845)-1.0)/14.98325;
 }
 fn clog2(x: f32) -> f32 {
-  if (x < 0.092864125) { return (x-0.12512248)/2.0 ; }
-  return (pow(10.0,(x-0.092864125)/0.24136077)-1.0)/87.09937 ;
+  if (x < 0.092864125) { return -(pow(10.0,(0.092864125-x)/0.24136077)-1.0)/87.09937; }
+  return (pow(10.0,(x-0.092864125)/0.24136077)-1.0)/87.09937;
 }
+fn vlogD(x: f32) -> f32 {
+  if (x < 0.181) { return (x-0.125)/5.6; }
+  return pow(10.0,(x-0.598206)/0.241514)-0.00873;
+}
+fn flogD(x: f32) -> f32 {
+  if (x < 0.100537775) { return (x-0.092864)/8.735631; }
+  return (pow(10.0,(x-0.790453)/0.344676)-0.009468)/0.555556;
+}
+// camera gamut -> Rec.709 (computed from published primaries, D65)
+const M_SGAMUT = ${m3(GAMUT.slog3)};
+const M_AWG    = ${m3(GAMUT.logc)};
+const M_CANON  = ${m3(GAMUT.clog3)};
+const M_VGAMUT = ${m3(GAMUT.vlog)};
+const M_FGAMUT = ${m3(GAMUT.flog)};
 fn decodeInput(c: vec3<f32>, mode: f32) -> vec3<f32> {
   if (mode < 0.5) { return srgbToLin(c); }
-  if (mode < 1.5) { return vec3(clog3(c.r), clog3(c.g), clog3(c.b)); }
-  if (mode < 2.5) { return vec3(clog2(c.r), clog2(c.g), clog2(c.b)); }
-  if (mode < 3.5) { return vec3(slog3(c.r), slog3(c.g), slog3(c.b)); }
-  return vec3(logc(c.r), logc(c.g), logc(c.b));
+  if (mode < 1.5) { return M_CANON  * vec3(clog3(c.r), clog3(c.g), clog3(c.b)); }
+  if (mode < 2.5) { return M_CANON  * vec3(clog2(c.r), clog2(c.g), clog2(c.b)); }
+  if (mode < 3.5) { return M_SGAMUT * vec3(slog3(c.r), slog3(c.g), slog3(c.b)); }
+  if (mode < 4.5) { return M_AWG    * vec3(logc(c.r),  logc(c.g),  logc(c.b)); }
+  if (mode < 5.5) { return M_VGAMUT * vec3(vlogD(c.r), vlogD(c.g), vlogD(c.b)); }
+  return M_FGAMUT * vec3(flogD(c.r), flogD(c.g), flogD(c.b));
 }
 
 // --- value noise + fbm for the distort/wiggle FX ---
@@ -321,7 +348,7 @@ fn applyCurve(c: vec3<f32>) -> vec3<f32> {
   let a = G.tf2.x * vis * raw.a;
   // show-mask: draw the matte itself as grayscale for tuning
   if (G.mk1.w > 0.5) { return vec4(vec3(m) * a, a); }
-  return vec4(linToSrgb(c) * a, a);
+  return vec4(linToOut(c) * a, a);
 }
 `;
 
@@ -508,6 +535,8 @@ export class Renderer {
   }
 
   setGrade(g) { this._grade = g; this._writeUniform(); }
+  // project output colour: 'srgb' (web) or 'rec709' (broadcast gamma 2.4)
+  setOutputColor(mode) { this._outTransfer = mode === 'rec709' ? 1 : 0; this._writeUniform(); }
   setTransform(tf) { this._tf = tf; this._writeUniform(); }
   // timeline time driving distort/wiggle evolution — playhead-based so export
   // renders the identical motion. Callers follow with setTransform each frame.
@@ -515,7 +544,7 @@ export class Renderer {
 
   _writeUniform() {
     const g = this._grade;
-    const inputMap = { none: 0, clog3: 1, clog2: 2, slog3: 3, logc: 4 };
+    const inputMap = { none: 0, clog3: 1, clog2: 2, slog3: 3, logc: 4, vlog: 5, flog: 6 };
     const f = new Float32Array(24 * 4);
     if (g) {
       const hsl = g.hsl || [], hslH = g.hslHue || [], hslL = g.hslLum || [];
@@ -553,12 +582,13 @@ export class Renderer {
     }
     const t = this._tf;
     const ft = this._fit || [1, 1];   // cover factors set per-layer in drawLayer
+    const ot = this._outTransfer || 0;   // 0 = sRGB, 1 = Rec.709 gamma 2.4
     if (t) {
       f.set([t.x || 0, t.y || 0, t.scale ?? 1, t.rotation || 0], 28);
       f.set([t.cropL || 0, t.cropR || 0, t.cropT || 0, t.cropB || 0], 32);
-      f.set([t.opacity ?? 1, ft[0], ft[1], 0], 36);
+      f.set([t.opacity ?? 1, ft[0], ft[1], ot], 36);
     } else {
-      f.set([0, 0, 1, 0], 28); f.set([0, 0, 0, 0], 32); f.set([1, ft[0], ft[1], 0], 36);
+      f.set([0, 0, 1, 0], 28); f.set([0, 0, 0, 0], 32); f.set([1, ft[0], ft[1], ot], 36);
     }
     this.device.queue.writeBuffer(this.uniformBuf, 0, f);
   }
