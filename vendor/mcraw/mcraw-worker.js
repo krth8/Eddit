@@ -30,10 +30,20 @@ self.onmessage = async (e) => {
       try { f0 = JSON.parse(M.ccall('mc_frame_meta', 'string', ['number', 'number'], [h, 0]) || '{}'); } catch {}
       reply({ h, count, meta, f0, ts, audioRate: M._mc_audio_rate(h), audioCh: M._mc_audio_channels(h) }, [ts.buffer]);
     } else if (d.op === 'frame') {
-      if (!M._mc_develop(d.h, d.i)) throw new Error(M.ccall('mc_last_error', 'string', [], []) || 'develop failed');
+      // full: 1 = full-res MHC demosaic; fmt: 0 = RGBA8, 1 = I010 10-bit;
+      // outW/outH: scale (0 = native)
+      if (!M._mc_develop2(d.h, d.i, d.full | 0, d.fmt | 0, d.outW | 0, d.outH | 0))
+        throw new Error(M.ccall('mc_last_error', 'string', [], []) || 'develop failed');
       const w = M._mc_rgba_w(d.h), hh = M._mc_rgba_h(d.h);
-      const p = M._mc_rgba_ptr(d.h);
-      const buf = M.HEAPU8.slice(p, p + w * hh * 4).buffer;
+      let buf;
+      if ((d.fmt | 0) === 1) {
+        const n = w * hh + 2 * ((w / 2) * (hh / 2));
+        const p = M._mc_i010_ptr(d.h) >> 1;
+        buf = M.HEAP16.slice(p, p + n).buffer;
+      } else {
+        const p = M._mc_rgba_ptr(d.h);
+        buf = M.HEAPU8.slice(p, p + w * hh * 4).buffer;
+      }
       reply({ w, h: hh, buf }, [buf]);
     } else if (d.op === 'audio') {
       const n = M._mc_audio_load(d.h);

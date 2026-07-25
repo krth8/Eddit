@@ -283,6 +283,8 @@ async function runQueue() {
         // works in HIDDEN tabs too (the <video>-based probe needs a visible
         // tab to present frames, so thumbs used to go missing when conversions
         // finished in the background)
+        if (!m.thumb && res.thumb) m.thumb = res.thumb;   // built during conversion
+        if (!m.strip && res.strip) m.strip = res.strip;
         if ((!m.thumb || !m.strip || !m.width || !m.duration) && res.blob) {
           try {
             const a = await analyzeProxy(res.blob);

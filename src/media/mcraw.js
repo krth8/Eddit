@@ -2,9 +2,10 @@
 // vendor/mcraw/ — the rest of the app only ever calls the gated entry points
 // below. Decode + develop (debayer, levels, white balance, colour matrix)
 // happen in a wasm worker built from motioncam-decoder (Apache-2.0); frames
-// come back as display-ready RGBA and feed the SAME WebCodecs proxy/conform
-// encoders every other format uses. The original .mcraw is never touched by
-// ffmpeg (it has no demuxer for it) and proxies stay edit-only as always.
+// come back display-ready and feed the SAME WebCodecs proxy/conform encoders
+// every other format uses. Proxies prefer 10-bit HEVC Main10 (banding-free
+// grading latitude) and fall back to 8-bit H.264; export conform re-develops
+// from the original at full demosaic resolution. ffmpeg is never involved.
 export const isMcraw = (name) => /\.mcraw$/i.test(name || '');
 
 let _worker = null, _id = 0;
@@ -37,9 +38,10 @@ function rpc(msg, transfer) {
 }
 
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+const SDR709 = { primaries: 'bt709', transfer: 'iec61966-2-1', matrix: 'bt709', fullRange: false };
 
-// Open a session: reads the frame index + metadata only (fast). frame(i)
-// returns developed RGBA at half sensor resolution (2x2 superpixel debayer).
+// Open a session: reads the frame index + metadata only (fast). frame(i,opts)
+// returns a developed frame — opts: {full, fmt (0 RGBA8 / 1 I010), outW, outH}.
 export async function openMcraw(file) {
   const r = await rpc({ op: 'open', file });
   const ts = r.ts;
@@ -57,15 +59,51 @@ export async function openMcraw(file) {
     meta: r.meta, count: r.count, fps, duration, ts, rel,
     width: r.f0.width || 0, height: r.f0.height || 0,
     audioRate: r.audioRate || 0, audioCh: r.audioCh || 0,
-    frame: (i) => rpc({ op: 'frame', h: r.h, i }),
+    frame: (i, o = {}) => rpc({ op: 'frame', h: r.h, i, full: o.full ? 1 : 0, fmt: o.fmt | 0, outW: o.outW | 0, outH: o.outH | 0 }),
     audio: () => rpc({ op: 'audio', h: r.h }),
     close: () => rpc({ op: 'close', h: r.h }).catch(() => {}),
   };
 }
 
-async function bitmapOf(f, w, h) {
-  const img = new ImageData(new Uint8ClampedArray(f.buf), f.w, f.h);
-  return createImageBitmap(img, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+function frameToVideoFrame(f, fmt, timestamp, duration) {
+  if (fmt === 1) {
+    return new VideoFrame(f.buf, {
+      format: 'I420P10', codedWidth: f.w, codedHeight: f.h,
+      timestamp, duration, colorSpace: SDR709,
+    });
+  }
+  return new VideoFrame(f.buf, {
+    format: 'RGBA', codedWidth: f.w, codedHeight: f.h,
+    timestamp, duration, colorSpace: { primaries: 'bt709', transfer: 'iec61966-2-1', matrix: 'rgb', fullRange: true },
+  });
+}
+
+// 10-bit is worth it for RAW (grading latitude without banding), but only
+// when the whole chain agrees: encoder, decoder AND muxer. HEVC Main10 first
+// (hardware where browsers expose it), VP9 profile 2 as the workhorse —
+// Chrome encodes it everywhere today. Returns a codec selection or null.
+async function pick10bit(Mux, w, h, fps) {
+  if (!('VideoEncoder' in window) || !('VideoDecoder' in window)) return null;
+  // the browser must also accept 10-bit planar VideoFrames as encoder input
+  try {
+    const t = new VideoFrame(new Uint16Array(6), { format: 'I420P10', codedWidth: 2, codedHeight: 2, timestamp: 0 });
+    t.close();
+  } catch { return null; }
+  const candidates = [
+    { mux: 'hevc', enc: h > 1088 ? 'hvc1.2.4.L153.B0' : 'hvc1.2.4.L123.B0' },
+    { mux: 'vp9',  enc: h > 1088 ? 'vp09.02.51.10' : 'vp09.02.41.10' },
+  ];
+  for (const c of candidates) {
+    try {
+      const enc = await VideoEncoder.isConfigSupported({ codec: c.enc, width: w, height: h, bitrate: 2e7, framerate: fps });
+      if (!enc.supported) continue;
+      const dec = await VideoDecoder.isConfigSupported({ codec: c.enc });
+      if (!dec.supported) continue;
+      new Mux.Muxer({ target: new Mux.ArrayBufferTarget(), video: { codec: c.mux, width: w, height: h, frameRate: fps }, fastStart: 'in-memory' });
+      return c;
+    } catch { /* try the next rung */ }
+  }
+  return null;
 }
 
 // AAC-encode interleaved int16 PCM into the muxer (proxy audio). The proxy is
@@ -93,70 +131,120 @@ async function encodePcm(muxer, pcm, rate, ch) {
   if (err) throw err;
 }
 
-// Proxy tier for makeProxy(): all-intra H.264, real frame timestamps (VFR
-// safe), AAC audio muxed in when the clip has any.
+// Proxy tier for makeProxy(): all-intra, real frame timestamps (VFR safe),
+// AAC audio muxed in, poster + filmstrip captured off the developed frames
+// (no separate analyze pass needed — and it works in hidden tabs).
 export async function proxyViaMcraw(Mux, file, targetH, onProgress, ctl) {
   const s = await openMcraw(file);
   try {
-    const f0 = await s.frame(0);
-    const ph = even(Math.min(targetH, f0.h)), pw = even(f0.w * (ph / f0.h));
+    const halfH = Math.floor((s.height || 2160) / 2), halfW = Math.floor((s.width || 3840) / 2);
+    const ph = even(Math.min(targetH, halfH)), pw = even(halfW * (ph / halfH));
     const framerate = Math.min(60, Math.max(1, Math.round(s.fps)));
-    let audioOk = false;
-    const ch = Math.min(2, s.audioCh);
-    if (s.audioRate && ch && 'AudioEncoder' in window) {
-      try { audioOk = (await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: s.audioRate, numberOfChannels: ch, bitrate: 128000 })).supported; } catch {}
+    const ten = await pick10bit(Mux, pw, ph, framerate);
+    if (ten) {
+      try { return await buildProxy(s, Mux, pw, ph, framerate, onProgress, ctl, ten); }
+      catch (e) {
+        if (ctl?.cancelled || /cancelled/.test(e?.message || '')) throw e;
+        console.warn('[mcraw] 10-bit proxy failed — falling back to 8-bit H.264:', e?.message || e);
+      }
     }
-    const muxer = new Mux.Muxer({
-      target: new Mux.ArrayBufferTarget(),
-      video: { codec: 'avc', width: pw, height: ph, frameRate: framerate },
-      ...(audioOk ? { audio: { codec: 'aac', sampleRate: s.audioRate, numberOfChannels: ch } } : {}),
-      fastStart: 'in-memory',
-    });
-    const state = { err: null };
-    const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
-    encoder.configure({ codec: 'avc1.4d0028', width: pw, height: ph, bitrate: Math.round(pw * ph * framerate * 0.4), framerate, latencyMode: 'quality' });
-
-    for (let i = 0; i < s.count; i++) {
-      if (ctl?.cancelled) throw new Error('cancelled');
-      if (state.err) break;
-      const f = i === 0 ? f0 : await s.frame(i);
-      const bmp = await bitmapOf(f, pw, ph);
-      const vf = new VideoFrame(bmp, { timestamp: Math.round(s.rel(i) * 1e6), duration: Math.round(1e6 / framerate) });
-      encoder.encode(vf, { keyFrame: true });
-      vf.close(); bmp.close();
-      if (onProgress && (i % 4 === 0 || i === s.count - 1)) onProgress(i / s.count);
-      if (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 20));
-    }
-    await encoder.flush();
-    if (state.err) throw new Error('encode error: ' + (state.err.message || state.err));
-    encoder.close();
-
-    if (audioOk) {
-      const a = await s.audio();
-      if (a.samples) await encodePcm(muxer, new Int16Array(a.buf), s.audioRate, ch);
-    }
-    muxer.finalize();
-    const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
-    return { url: URL.createObjectURL(blob), blob, width: pw, height: ph, size: blob.size, method: 'mcraw' };
+    return await buildProxy(s, Mux, pw, ph, framerate, onProgress, ctl, null);
   } finally { s.close(); }
 }
 
-// Export conform: develop just the timeline range at delivery resolution.
-// Output timestamps are relative to ss so the export loop's srcTime - off
-// mapping lands on the exact source frame.
+async function buildProxy(s, Mux, pw, ph, framerate, onProgress, ctl, ten) {
+  const tenbit = !!ten;
+  const fmt = tenbit ? 1 : 0;
+  let audioOk = false;
+  const ch = Math.min(2, s.audioCh);
+  if (s.audioRate && ch && 'AudioEncoder' in window) {
+    try { audioOk = (await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: s.audioRate, numberOfChannels: ch, bitrate: 128000 })).supported; } catch {}
+  }
+  const muxer = new Mux.Muxer({
+    target: new Mux.ArrayBufferTarget(),
+    video: { codec: tenbit ? ten.mux : 'avc', width: pw, height: ph, frameRate: framerate },
+    ...(audioOk ? { audio: { codec: 'aac', sampleRate: s.audioRate, numberOfChannels: ch } } : {}),
+    fastStart: 'in-memory',
+  });
+  const state = { err: null };
+  const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
+  encoder.configure({
+    codec: tenbit ? ten.enc : 'avc1.4d0028',
+    width: pw, height: ph,
+    bitrate: Math.round(pw * ph * framerate * (tenbit ? 0.3 : 0.4)),
+    framerate, latencyMode: 'quality',
+  });
+
+  // poster + filmstrip straight off the developed frames
+  const SN = 10, fw = 320;
+  const fh = Math.max(2, Math.round(fw * ph / pw));
+  const stripCan = new OffscreenCanvas(fw * SN, fh);
+  const scx = stripCan.getContext('2d');
+  const tw = 640, th = Math.max(2, Math.round(tw * ph / pw));
+  const thumbCan = new OffscreenCanvas(tw, th);
+  const stripAt = new Map();
+  for (let k = 0; k < Math.min(SN, s.count); k++)
+    stripAt.set(Math.min(s.count - 1, Math.floor((k + 0.5) / Math.min(SN, s.count) * s.count)), k);
+
+  for (let i = 0; i < s.count; i++) {
+    if (ctl?.cancelled) throw new Error('cancelled');
+    if (state.err) break;
+    const f = await s.frame(i, { full: 0, fmt, outW: pw, outH: ph });
+    const vf = frameToVideoFrame(f, fmt, Math.round(s.rel(i) * 1e6), Math.round(1e6 / framerate));
+    if (stripAt.has(i)) {
+      const slot = stripAt.get(i);
+      try {
+        scx.drawImage(vf, slot * fw, 0, fw, fh);
+        if (slot === Math.floor(Math.min(SN, s.count) / 2)) thumbCan.getContext('2d').drawImage(vf, 0, 0, tw, th);
+      } catch {}
+    }
+    encoder.encode(vf, { keyFrame: true });
+    vf.close();
+    if (onProgress && (i % 4 === 0 || i === s.count - 1)) onProgress(i / s.count);
+    if (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 20));
+  }
+  await encoder.flush();
+  if (state.err) throw new Error('encode error: ' + (state.err.message || state.err));
+  encoder.close();
+
+  if (audioOk) {
+    const a = await s.audio();
+    if (a.samples) await encodePcm(muxer, new Int16Array(a.buf), s.audioRate, ch);
+  }
+  muxer.finalize();
+  const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  const asURL = (c) => c.convertToBlob({ type: 'image/jpeg', quality: 0.7 })
+    .then((b) => new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); }))
+    .catch(() => null);
+  return {
+    url: URL.createObjectURL(blob), blob, width: pw, height: ph, size: blob.size,
+    method: tenbit ? 'mcraw-10bit-' + ten.mux : 'mcraw',
+    thumb: await asURL(thumbCan), strip: await asURL(stripCan),
+  };
+}
+
+// Export conform: develop just the timeline range at delivery resolution with
+// the FULL-RES demosaic (superpixel is proxy-only). Output timestamps are
+// relative to ss so the export loop's srcTime - off mapping lands on the
+// exact source frame. 10-bit HEVC when the chain supports it.
 export async function mcrawConformRange(file, { ss = 0, dur = 0, height = 1080 }, onProgress) {
   const Mux = window.Mp4Muxer;
   if (!Mux || !('VideoEncoder' in window)) throw new Error('WebCodecs encoder unavailable');
   const s = await openMcraw(file);
   try {
-    const f0 = await s.frame(0);
-    const ph = even(height), pw = even(f0.w * (ph / f0.h));
+    const ph = even(height), pw = even((s.width || 3840) * (ph / (s.height || 2160)));
     const framerate = Math.min(60, Math.max(1, Math.round(s.fps)));
-    const muxer = new Mux.Muxer({ target: new Mux.ArrayBufferTarget(), video: { codec: 'avc', width: pw, height: ph, frameRate: framerate }, fastStart: 'in-memory' });
+    const ten = await pick10bit(Mux, pw, ph, framerate);
+    const fmt = ten ? 1 : 0;
+    const muxer = new Mux.Muxer({ target: new Mux.ArrayBufferTarget(), video: { codec: ten ? ten.mux : 'avc', width: pw, height: ph, frameRate: framerate }, fastStart: 'in-memory' });
     const state = { err: null };
     const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
-    const codec = ph > 1088 ? 'avc1.640033' : 'avc1.640028';
-    encoder.configure({ codec, width: pw, height: ph, bitrate: Math.round(pw * ph * framerate * 0.3), framerate, latencyMode: 'quality' });
+    encoder.configure({
+      codec: ten ? ten.enc : (ph > 1088 ? 'avc1.640033' : 'avc1.640028'),
+      width: pw, height: ph,
+      bitrate: Math.round(pw * ph * framerate * (ten ? 0.22 : 0.3)),
+      framerate, latencyMode: 'quality',
+    });
 
     const end = dur > 0 ? ss + dur : Infinity;
     const picks = [];
@@ -165,13 +253,12 @@ export async function mcrawConformRange(file, { ss = 0, dur = 0, height = 1080 }
     for (let k = 0; k < picks.length; k++) {
       if (state.err) break;
       const i = picks[k];
-      const f = i === 0 ? f0 : await s.frame(i);
-      const bmp = await bitmapOf(f, pw, ph);
-      const vf = new VideoFrame(bmp, { timestamp: Math.round((s.rel(i) - ss) * 1e6), duration: Math.round(1e6 / framerate) });
+      const f = await s.frame(i, { full: 1, fmt, outW: pw, outH: ph });
+      const vf = frameToVideoFrame(f, fmt, Math.round((s.rel(i) - ss) * 1e6), Math.round(1e6 / framerate));
       encoder.encode(vf, { keyFrame: k % 12 === 0 });
-      vf.close(); bmp.close();
-      if (onProgress && (k % 4 === 0 || k === picks.length - 1)) onProgress(k / picks.length);
-      if (encoder.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 20));
+      vf.close();
+      if (onProgress && (k % 2 === 0 || k === picks.length - 1)) onProgress(k / picks.length);
+      if (encoder.encodeQueueSize > 6) await new Promise((r) => setTimeout(r, 20));
     }
     await encoder.flush();
     if (state.err) throw new Error('encode error: ' + (state.err.message || state.err));
