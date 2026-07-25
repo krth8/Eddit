@@ -8,6 +8,7 @@ import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media
 import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut, LUT_CATEGORIES } from '../luts.js';
 import { ffmpegLoaded, ffmpegMultithread, abortTranscode } from '../media/ffmpeg.js';
+import { isMcraw, openMcraw } from '../media/mcraw.js';
 
 let engine = null;
 let caps = { decode: false, encode: false, hevc: false };
@@ -112,7 +113,7 @@ export async function initMedia(eng) {
   renderGrid();
 }
 
-const VIDEO_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts|m2ts|3gp|hevc)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts|m2ts|3gp|hevc|mcraw)$/i;
 
 async function importFiles(files) {
   // Folder imports sweep in sidecars (wav/cube/bmp/Thumbs.db…) — keep only
@@ -151,6 +152,20 @@ async function importFiles(files) {
   // ffmpeg tier also converts clips nothing native can decode)
   for (const { m, file, relink } of work) {
     if (m.removed) continue;
+    if (isMcraw(file.name)) {
+      // RAW: <video>/demux can't read it — the wasm decoder supplies the
+      // metadata and the proxy becomes the only playable form of the clip
+      try {
+        const s = await openMcraw(file);
+        m.width = s.width; m.height = s.height; m.duration = s.duration;
+        s.close();
+      } catch (e) { console.warn('[import] mcraw probe failed', file.name, e); }
+      updateCard(m);
+      bus.emit('media:changed');
+      if (relink) toast('Re-linked ' + file.name);
+      if (el('autoProxy').checked && !m.proxyReady) queueProxy(m, false);
+      continue;
+    }
     try {
       const meta = await probe(file);
       m.url = meta.url; m.playable = meta.playable;

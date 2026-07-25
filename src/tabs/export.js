@@ -5,6 +5,7 @@ import { el, fmtTC, toast } from '../util.js';
 import { renderTitleCanvas } from '../timeline/title.js';
 import { mixTimelineAudio, audioClips } from '../timeline/mixer.js';
 import { transcodeRange } from '../media/ffmpeg.js';
+import { isMcraw, mcrawConformRange } from '../media/mcraw.js';
 import { loadProxy, saveProxy } from '../store.js';
 
 let engine = null, renderer = null;
@@ -48,7 +49,7 @@ export function refresh() {
   }
   el('exState').textContent = n
     ? `Ready — ${fmtTC(timelineDuration())}`
-      + (conformN ? ` · ${conformN} clip${conformN === 1 ? '' : 's'} conform at render (ffmpeg, full quality)` : '')
+      + (conformN ? ` · ${conformN} clip${conformN === 1 ? '' : 's'} conform at render (full quality)` : '')
       + (missingN ? ` · ${missingN} clip${missingN === 1 ? '' : 's'} need re-linking before export` : '')
     : 'Nothing to export yet';
   el('exSummary').textContent = n
@@ -149,11 +150,17 @@ async function render() {
       let blob = await loadProxy(key).catch(() => null);
       if (!blob) {
         const lbl = `Conforming ${m.name} (${i + 1}/${need.length})`;
-        status.textContent = lbl + ' — full quality via ffmpeg…';
-        blob = await transcodeRange(m.file, { ss, dur: durS, height: H },
-          (p2) => { bar.style.width = (p2 * 100).toFixed(0) + '%'; },
-          (txt, pct) => { status.textContent = `${lbl} — ${txt || ''}${pct != null ? ' ' + Math.round(pct * 100) + '%' : ''}`; },
-          (m.width || 0) * (m.height || 0));
+        if (isMcraw(m.name)) {
+          status.textContent = lbl + ' — full quality RAW develop…';
+          blob = await mcrawConformRange(m.file, { ss, dur: durS, height: H },
+            (p2) => { bar.style.width = (p2 * 100).toFixed(0) + '%'; });
+        } else {
+          status.textContent = lbl + ' — full quality via ffmpeg…';
+          blob = await transcodeRange(m.file, { ss, dur: durS, height: H },
+            (p2) => { bar.style.width = (p2 * 100).toFixed(0) + '%'; },
+            (txt, pct) => { status.textContent = `${lbl} — ${txt || ''}${pct != null ? ' ' + Math.round(pct * 100) + '%' : ''}`; },
+            (m.width || 0) * (m.height || 0));
+        }
         saveProxy(key, blob).catch(() => {});
       }
       conform.set(c.id, { url: URL.createObjectURL(blob), off: ss });
@@ -173,7 +180,8 @@ async function render() {
     const decodeFor = async (media, actx) => {
       if (!media) return null;
       if (audioCache.has(media.id)) return audioCache.get(media.id);
-      const src = media.file || media.proxyBlob || null;
+      // decodeAudioData can't read .mcraw — its proxy carries the clip's AAC
+      const src = isMcraw(media?.name) ? (media.proxyBlob || null) : (media.file || media.proxyBlob || null);
       let buf = null;
       if (src) { try { buf = await actx.decodeAudioData(await src.arrayBuffer()); } catch { buf = null; } }
       audioCache.set(media.id, buf); return buf;

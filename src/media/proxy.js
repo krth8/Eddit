@@ -7,6 +7,7 @@
 import { demux, toChunk } from './demux.js';
 import { transcodeToProxy } from './ffmpeg.js';
 import { probe } from './probe.js';
+import { isMcraw, proxyViaMcraw } from './mcraw.js';
 
 const once = (el, ev) => new Promise((res, rej) => {
   el.addEventListener(ev, res, { once: true });
@@ -83,6 +84,13 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
   const Mux = window.Mp4Muxer;
   const canEncode = ('VideoEncoder' in window) && !!Mux;
   const errs = [];
+
+  // MotionCam RAW: decode + develop in the mcraw wasm worker — no other tier
+  // can read it (ffmpeg has no mcraw demuxer), so this path is authoritative.
+  if (isMcraw(file.name)) {
+    if (!canEncode) throw new Error('RAW (.mcraw) needs a WebCodecs H.264 encoder in this browser');
+    return await proxyViaMcraw(Mux, file, targetH, onProgress, ctl);
+  }
 
   // Try WebCodecs decode when the container demuxes AND the codec is supported.
   let dem = null, decodeSupported = false;

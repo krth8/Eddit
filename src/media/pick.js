@@ -8,7 +8,7 @@
 export const handleMap = new WeakMap(); // File -> FileSystemFileHandle (when available)
 export const pathMap = new WeakMap();   // File -> relative path (folder import)
 
-const EXTS = ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.3gp', '.hevc'];
+const EXTS = ['.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.3gp', '.hevc', '.mcraw'];
 const ACCEPT = 'video/*,image/*,' + EXTS.join(',');
 
 export async function pickMedia() {
