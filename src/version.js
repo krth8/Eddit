@@ -9,13 +9,8 @@ export const RELEASE_NOTES = [
   {
     v: '0.9.1', date: '2026-07-25', title: 'RAW, colour science and a smarter timeline',
     items: [
-      'MotionCam RAW (.mcraw): import, edit and export phone RAW — decoded and developed entirely in the browser, with a RAW panel in the Color tab (exposure, temp, tint).',
-      '10-bit proxies for RAW footage where the browser supports it — grading latitude without banding.',
-      'Colour science: proper camera gamut matrices for every Log conversion (Sony, ARRI, Canon, Panasonic, Fujifilm), exact Canon C-Log2/3 decodes, and new V-Log / F-Log input transforms.',
-      'Project colour setting: sRGB (web) or Rec.709 (broadcast) — the preview follows it and exports carry the right colour tags.',
-      'Media pool multi-select (ctrl/shift-click, long-press on touch): batch delete and per-camera input transforms for mixed-footage projects.',
-      'Timeline: a clip-length ghost previews drops from the pool, and drops/moves use overwrite semantics — clips trim, split or replace what they land on, and never overlap.',
-      'Your own LUT library (.cube) and reusable grade presets.',
+      'MotionCam RAW: import, grade and export .mcraw footage right in the browser — with 10-bit proxies and a RAW panel in the Color tab.',
+      'Accurate Log colour science, project colour setting (sRGB/Rec.709), media multi-select, and overwrite editing on the timeline.',
     ],
   },
   {

@@ -47,9 +47,13 @@ function buildWhatsNew() {
 export function initProjects(afterLoad) {
   onSwitch = afterLoad;
   buildWhatsNew();
+  const ver = el('splashVer');
+  if (ver) ver.textContent = `  ·  v${APP_VERSION}  ·  click anywhere to continue`;
   el('projBtn').onclick = openBrowser;
-  el('projClose').onclick = closeBrowser;
   el('projOverlay').addEventListener('click', (e) => { if (e.target === el('projOverlay')) closeBrowser(); });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el('projOverlay').classList.contains('hidden')) closeBrowser();
+  });
   el('projNew').onclick = async () => {
     const name = (prompt('New project name', 'Untitled') || '').trim();
     if (name === null) return;
@@ -95,37 +99,36 @@ function closeBrowser() {
 async function render() {
   const grid = el('projGrid'); grid.innerHTML = '';
   const projects = await listProjects();
-  if (!projects.length) { grid.innerHTML = '<div class="proj-empty statline">No projects yet — create your first one.</div>'; return; }
+  if (!projects.length) { grid.innerHTML = '<div class="splash-empty">No saved projects yet — start a new one below.</div>'; return; }
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   for (const p of projects) {
     const card = document.createElement('div');
-    card.className = 'proj-card' + (p.id === loadedId ? ' active' : '');
-    const thumb = p.thumb ? `background-image:url(${p.thumb})` : '';
+    card.className = 'splash-card' + (p.id === loadedId ? ' active' : '');
     card.innerHTML = `
-      <div class="proj-thumb" style="${thumb}">${p.thumb ? '' : '🎬'}${p.id === loadedId ? '<span class="proj-badge">open</span>' : ''}</div>
-      <div class="proj-body">
-        <div class="proj-name" title="${p.name}">${p.name}</div>
-        <div class="proj-meta">${p.clips || 0} clip${p.clips === 1 ? '' : 's'} · ${fmtWhen(p.modified)}</div>
-      </div>
-      <div class="proj-actions">
-        <button data-a="open" title="Open">Open</button>
+      ${p.thumb ? `<img class="splash-thumb" src="${p.thumb}" alt="">` : '<div class="splash-thumb">🎬</div>'}
+      ${p.id === loadedId ? '<span class="splash-badge">Open</span>' : ''}
+      <div class="splash-name" title="${esc(p.name)}">${esc(p.name)}</div>
+      <div class="splash-meta">${p.clips || 0} clip${p.clips === 1 ? '' : 's'} · ${fmtWhen(p.modified)}</div>
+      <div class="sc-actions">
         <button data-a="rename" title="Rename">✎</button>
         <button data-a="dup" title="Duplicate">⧉</button>
-        <button data-a="del" title="Delete">🗑</button>
+        <button data-a="del" title="Delete">✕</button>
       </div>`;
-    card.querySelector('[data-a="open"]').onclick = async () => {
+    card.onclick = async () => {
       if (p.id === loadedId) { closeBrowser(); return; }
       await commitCurrent(); await switchTo(p.id); closeBrowser();
       toast('Opened “' + p.name + '”');
     };
-    card.querySelector('[data-a="rename"]').onclick = async () => {
+    const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+    card.querySelector('[data-a="rename"]').onclick = stop(async () => {
       const name = prompt('Rename project', p.name); if (name === null) return;
       await renameProject(p.id, name.trim() || p.name); render();
-    };
-    card.querySelector('[data-a="dup"]').onclick = async () => {
+    });
+    card.querySelector('[data-a="dup"]').onclick = stop(async () => {
       if (p.id === loadedId) await commitCurrent();
       await duplicateProject(p.id); render(); toast('Duplicated');
-    };
-    card.querySelector('[data-a="del"]').onclick = async () => {
+    });
+    card.querySelector('[data-a="del"]').onclick = stop(async () => {
       if (!confirm('Delete “' + p.name + '”? This cannot be undone.')) return;
       const wasLoaded = p.id === loadedId;
       await deleteProject(p.id);
@@ -135,7 +138,7 @@ async function render() {
         if (next) await switchTo(next); else { resetForNewProject(); onSwitch?.(null); }
       }
       render(); toast('Deleted');
-    };
+    });
     grid.appendChild(card);
   }
 }

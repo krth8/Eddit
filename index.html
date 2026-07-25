@@ -88,18 +88,32 @@
   </div>
 </div>
 
-<div class="overlay hidden" id="projOverlay">
-  <div class="box proj-box">
-    <div class="row" style="justify-content:space-between;margin-bottom:14px">
-      <h3 style="margin:0;font-size:16px">Projects</h3>
-      <div class="row" style="gap:6px">
-        <button class="ghost" id="pwaInstall" style="padding:7px 12px" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>Install app</button>
-        <button class="accent" id="projNew" style="padding:7px 14px">+ New project</button>
-        <button class="ghost" id="projClose" style="padding:7px 12px">Close</button>
+<div class="overlay hidden splash-scrim" id="projOverlay">
+  <div class="splash">
+    <div class="splash-head">
+      <span class="splash-beta">Beta</span>
+      <div class="splash-brand">
+        <svg width="46" height="46" viewBox="0 0 256 256"><defs><linearGradient id="lgs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8ff0b8"/><stop offset=".55" stop-color="#5fd598"/><stop offset="1" stop-color="#2ba7d8"/></linearGradient></defs><rect width="256" height="256" rx="58" fill="#161c24"/><g fill="url(#lgs)"><rect x="58" y="61" width="96" height="32" rx="16"/><rect x="58" y="112" width="140" height="32" rx="16"/><rect x="58" y="163" width="96" height="32" rx="16"/></g></svg>
+        <span>Eddit</span>
+      </div>
+      <div class="splash-tag">Edit, grade and export — right in your browser</div>
+    </div>
+    <div class="splash-hdr">Recent projects</div>
+    <div class="splash-projects" id="projGrid"></div>
+    <div id="projNews"></div>
+    <div class="splash-actions">
+      <button class="accent" id="projNew">+ New project</button>
+      <button class="ghost splash-install" id="pwaInstall" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>Install app</button>
+    </div>
+    <div class="splash-foot">
+      <div class="splash-foot-left">
+        <a class="splash-link" href="https://github.com/krth8/Eddit" target="_blank" rel="noopener">github.com/krth8/Eddit</a>
+        <span id="splashVer"></span>
+      </div>
+      <div class="splash-foot-right">
+        <a class="splash-link" href="https://github.com/krth8/Eddit#readme" target="_blank" rel="noopener">About</a>
       </div>
     </div>
-    <div id="projNews"></div>
-    <div class="proj-grid" id="projGrid"></div>
   </div>
 </div>
 

@@ -168,11 +168,13 @@ async function buildProxy(s, Mux, pw, ph, framerate, onProgress, ctl, ten) {
   });
   const state = { err: null };
   const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
+  // VP9 profile 2 is a SOFTWARE encoder in practice — realtime mode keeps it
+  // usable (all-intra at proxy bitrate hides the quality difference)
   encoder.configure({
     codec: tenbit ? ten.enc : 'avc1.4d0028',
     width: pw, height: ph,
     bitrate: Math.round(pw * ph * framerate * (tenbit ? 0.3 : 0.4)),
-    framerate, latencyMode: 'quality',
+    framerate, latencyMode: tenbit && ten.mux === 'vp9' ? 'realtime' : 'quality',
   });
 
   // poster + filmstrip straight off the developed frames
@@ -186,9 +188,16 @@ async function buildProxy(s, Mux, pw, ph, framerate, onProgress, ctl, ten) {
   for (let k = 0; k < Math.min(SN, s.count); k++)
     stripAt.set(Math.min(s.count - 1, Math.floor((k + 0.5) / Math.min(SN, s.count) * s.count)), k);
 
+  const t0 = performance.now();
   for (let i = 0; i < s.count; i++) {
     if (ctl?.cancelled) throw new Error('cancelled');
     if (state.err) break;
+    // this machine can't keep up with 10-bit software encode — bail early and
+    // let the caller fall back to hardware 8-bit H.264 instead of crawling
+    if (tenbit && i === 12 && (performance.now() - t0) / 12 > 400) {
+      try { encoder.close(); } catch {}
+      throw new Error('tenbit-encode-too-slow');
+    }
     const f = await s.frame(i, { full: 0, fmt, outW: pw, outH: ph });
     const vf = frameToVideoFrame(f, fmt, Math.round(s.rel(i) * 1e6), Math.round(1e6 / framerate));
     if (stripAt.has(i)) {
@@ -242,8 +251,8 @@ export async function mcrawConformRange(file, { ss = 0, dur = 0, height = 1080 }
     encoder.configure({
       codec: ten ? ten.enc : (ph > 1088 ? 'avc1.640033' : 'avc1.640028'),
       width: pw, height: ph,
-      bitrate: Math.round(pw * ph * framerate * (ten ? 0.22 : 0.3)),
-      framerate, latencyMode: 'quality',
+      bitrate: Math.round(pw * ph * framerate * (ten ? 0.26 : 0.3)),
+      framerate, latencyMode: ten && ten.mux === 'vp9' ? 'realtime' : 'quality',
     });
 
     const end = dur > 0 ? ss + dur : Infinity;

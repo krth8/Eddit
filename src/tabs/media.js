@@ -228,6 +228,7 @@ function queueProxy(m, force) {
   if (m.proxyReady && !force) return;
   // ffmpeg.wasm tier-3 works even without a WebCodecs encoder, so always queue
   m.proxyReady = false; m.proxyStatus = 'queued';
+  if (force) m._proxyForce = true;   // a rebuild must NOT resurrect the cached proxy
   proxyQueue.push(m);
   renderGrid();
   runQueue();
@@ -258,7 +259,8 @@ async function runQueue() {
       prog.classList.remove('hidden'); prog.firstElementChild.style.width = '0%'; updateCard(m);
       try {
         // reuse a cached proxy from OPFS (timeout-guarded so a hung FS can't freeze the queue)
-        const cached = await withTimeout(loadProxy(key), 4000, 'opfs').catch(() => null);
+        const cached = m._proxyForce ? null : await withTimeout(loadProxy(key), 4000, 'opfs').catch(() => null);
+        m._proxyForce = false;
         if (cached) {
           m.proxyBlob = cached; m.proxyUrl = URL.createObjectURL(cached); m.proxyKey = key;
           m.proxyReady = true; m.proxyStatus = 'ready'; updateCard(m);
