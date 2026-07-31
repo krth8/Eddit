@@ -3,9 +3,16 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.2';
+export const APP_VERSION = '0.9.3';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.3', date: '2026-07-31', title: 'Audio import, sound in playback, and much faster scrubbing',
+    items: [
+      'Import music and audio files straight onto the audio tracks — and clips play with sound again, since proxies now carry the audio.',
+      'Scrubbing is dramatically faster, stacked video tracks included, and the Color tab’s loop button now loops the whole selected clip.',
+    ],
+  },
   {
     v: '0.9.2', date: '2026-07-31', title: 'Easier trimming on the timeline',
     items: [
