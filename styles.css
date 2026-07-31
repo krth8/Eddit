@@ -369,24 +369,50 @@ canvas.pv-canvas{display:block;max-width:100%;max-height:100%;
 .tl-clip:hover{filter:brightness(1.15)}
 .tl-clip.cur{box-shadow:inset 0 0 0 2px var(--sel)}
 .tl-clip.graded::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
-.tl-edge{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;z-index:4;opacity:0;
+/* Each end of a clip is split horizontally: the TOP strip drags the fade, the
+   rest of the height trims. They used to overlap (fade sat on z-index 6 over a
+   full-height 9px edge), so aiming at a corner always got the fade. */
+.tl-clip{--fadeH:14px}
+:root[data-touch] .tl-clip{--fadeH:18px}
+.tl-edge{position:absolute;top:min(var(--fadeH),40%);bottom:0;width:min(9px,35%);cursor:ew-resize;z-index:4;opacity:0;
   background:var(--sel);display:flex;align-items:center;justify-content:center;
   color:#1c1c1e;font-size:9px;font-weight:800;transition:opacity var(--tf)}
+/* min(…,35%) leaves a middle to grab on very short clips, which two fixed
+   9px edges would otherwise swallow whole */
+.tl-edge::after{content:"";width:2px;height:38%;min-height:6px;background:rgba(0,0,0,.4);border-radius:1px}
 .tl-edge.l{left:0;border-radius:3px 0 0 3px}
 .tl-edge.r{right:0;border-radius:0 3px 3px 0}
 .tl-clip:hover .tl-edge,.tl-clip.cur .tl-edge{opacity:.95}
-/* fade regions + draggable fade handles at the top corners of a clip */
+/* fade regions + draggable fade handles along the top of a clip */
 .tl-clip .fade-tri{position:absolute;top:0;bottom:0;z-index:2;pointer-events:none}
 .tl-clip .fade-tri.in{left:0;background:linear-gradient(to right,rgba(0,0,0,.68),transparent)}
 .tl-clip .fade-tri.out{right:0;background:linear-gradient(to left,rgba(0,0,0,.68),transparent)}
-.tl-clip .fade-h{position:absolute;top:-2px;width:16px;height:16px;transform:translateX(-50%);z-index:6;
+/* width/left/--fx come from JS: the zone is clamped inside the clip so it is
+   never half-cut by overflow:hidden, and --fx keeps the diamond on the real
+   fade point inside it */
+.tl-clip .fade-h{position:absolute;top:0;height:min(var(--fadeH),40%);z-index:6;
   cursor:ew-resize;touch-action:none}
-.tl-clip .fade-h::after{content:"";position:absolute;left:50%;top:3px;width:9px;height:9px;
+.tl-clip .fade-h::after{content:"";position:absolute;left:var(--fx,50%);top:3px;width:9px;height:9px;
   transform:translateX(-50%) rotate(45deg);background:#fff;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.55);
   opacity:0;transition:opacity var(--tf)}
 .tl-clip:hover .fade-h::after,.tl-clip.cur .fade-h::after{opacity:.9}
 .tl-clip .fade-h:hover::after{opacity:1;background:var(--accent)}
-:root[data-touch] .tl-clip .fade-h::after{opacity:.85}
+/* touch: handles belong to the SELECTED clip only — at a cut two neighbours'
+   edges sit ~4px apart, which no finger can pick between. Select, then trim. */
+:root[data-touch] .tl-clip .tl-edge,
+:root[data-touch] .tl-clip .fade-h{pointer-events:none}
+:root[data-touch] .tl-clip.cur{z-index:6}
+:root[data-touch] .tl-clip.cur .tl-edge{pointer-events:auto;width:min(26px,35%);opacity:1}
+:root[data-touch] .tl-clip.cur .fade-h{pointer-events:auto}
+/* …and the two zones are DRAWN as a stacked pair, so which half does what is
+   readable without trying: light pill on top fades, yellow bar below trims */
+:root[data-touch] .tl-clip.cur .fade-h{background:rgba(255,255,255,.92);border-radius:5px 5px 0 0;
+  border-bottom:1px solid rgba(0,0,0,.4);box-shadow:0 1px 5px rgba(0,0,0,.5)}
+:root[data-touch] .tl-clip.cur .fade-h::after{opacity:1;background:#1c1c1e;box-shadow:none;
+  top:50%;transform:translate(-50%,-50%) rotate(45deg)}
+/* three grip lines on the trim bar — one line reads as decoration at 26px */
+:root[data-touch] .tl-clip.cur .tl-edge::after{width:2px;height:44%;background:rgba(0,0,0,.45);
+  box-shadow:-5px 0 0 rgba(0,0,0,.45),5px 0 0 rgba(0,0,0,.45)}
 /* cross-dissolve marker (X bowtie) on the incoming clip's left edge */
 .tl-clip .kf-mark{position:absolute;bottom:2px;width:7px;height:7px;transform:translateX(-50%) rotate(45deg);
   background:var(--accent);z-index:4;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.45)}

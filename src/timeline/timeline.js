@@ -305,10 +305,12 @@ function moveClip(id, e) {
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
 }
 
-// Landscape phones dock no inspector — a plain tap on a clip (pointer released
-// without dragging) pops the clip settings up as the right-hand drawer instead.
+// Narrow layouts dock no inspector — a plain tap on a clip (pointer released
+// without dragging) pops the clip settings up as a drawer instead. That drawer
+// is the reliable route to fade/speed/volume when the on-clip handles are too
+// small for a finger, so portrait gets it as well as landscape.
 function tapOpensInspector(e) {
-  if (!isNarrow() || document.documentElement.getAttribute('data-orient') !== 'landscape') return;
+  if (!isNarrow()) return;
   const x0 = e.clientX, y0 = e.clientY;
   let moved = false;
   const mv = (ev) => { if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) moved = true; };
@@ -348,6 +350,7 @@ function edgeTrim(id, side, e) {
     if (clipEl) {
       clipEl.style.left = c.start * pxPerSec + 'px';
       clipEl.style.width = Math.max(6, clipTLDur(c) * pxPerSec - 2) + 'px';
+      syncFadeZones(clipEl, c);   // the out-strip is left-positioned — it must follow the edge
     }
   };
   const up = () => {
@@ -465,6 +468,34 @@ function buildLane(kind, index) {
   return lane;
 }
 
+// A fade handle is a fixed-width strip on the clip's top edge. It's clamped to
+// stay fully inside the clip: centred on the fade point it used to hang half
+// outside at fade 0, and overflow:hidden ate that half. --fx keeps the diamond
+// on the real fade point inside the (possibly off-centre) strip.
+function fadeZone(w, at) {
+  // 26px on touch matches the trim bar below it, so at fade 0 the two stack
+  // into one split handle instead of a lopsided T
+  const fw = Math.min(isTouchUI() ? 26 : 22, Math.max(10, w * 0.35));
+  const left = clamp(at - fw / 2, 0, Math.max(0, w - fw));
+  // the diamond is the handle's grip, not a readout — keep it whole inside the
+  // strip (at fade 0 the true point is the clip edge, which rendered as a half
+  // diamond). The fade gradient still shows the real extent.
+  const fx = clamp(at - left, 7, Math.max(7, fw - 7));
+  return { fw, left, fx };
+}
+
+// re-place both strips on a clip that's being trimmed or faded live (the full
+// rebuild only happens on pointerup)
+function syncFadeZones(clipEl, c) {
+  if (!clipEl) return;
+  const w = Math.max(6, clipTLDur(c) * pxPerSec - 2);
+  const fi = Math.max(0, c.fadeIn || 0) * pxPerSec, fo = Math.max(0, c.fadeOut || 0) * pxPerSec;
+  for (const [sel, z] of [['.fade-h.in', fadeZone(w, fi)], ['.fade-h.out', fadeZone(w, w - fo)]]) {
+    const n = clipEl.querySelector(sel); if (!n) continue;
+    n.style.left = z.left + 'px'; n.style.width = z.fw + 'px'; n.style.setProperty('--fx', z.fx + 'px');
+  }
+}
+
 function buildClip(c, kind) {
   const m = getMedia(c.mediaId);
   const isTitle = c.type === 'title';
@@ -478,10 +509,12 @@ function buildClip(c, kind) {
   if ((c.speed || 1) !== 1) d.dataset.speed = (c.speed).toFixed(2) + '×';
   const w = Math.max(6, clipTLDur(c) * pxPerSec - 2);
   const fi = Math.max(0, c.fadeIn || 0) * pxPerSec, fo = Math.max(0, c.fadeOut || 0) * pxPerSec;
+  const zi = fadeZone(w, fi), zo = fadeZone(w, w - fo);
   const label = isTitle ? ('T ' + (c.title?.text || 'Title').split('\n')[0]) : (m?.name || 'clip');
   d.innerHTML = `<span class="tl-name">${label}${c.mute ? ' 🔇' : ''}</span>`
     + `<span class="fade-tri in" style="width:${fi}px"></span><span class="fade-tri out" style="width:${fo}px"></span>`
-    + `<span class="fade-h in" style="left:${fi}px"></span><span class="fade-h out" style="left:${w - fo}px"></span>`
+    + `<span class="fade-h in" style="left:${zi.left}px;width:${zi.fw}px;--fx:${zi.fx}px"></span>`
+    + `<span class="fade-h out" style="left:${zo.left}px;width:${zo.fw}px;--fx:${zo.fx}px"></span>`
     + (c.transIn > 0 ? `<span class="trans-mark" style="width:${c.transIn * pxPerSec}px"></span>` : '')
     + ((c.keyframes && c.keyframes.length) ? c.keyframes.map((k) => `<span class="kf-mark" style="left:${k.t * pxPerSec}px"></span>`).join('') : '')
     + `<span class="tl-edge l"></span><span class="tl-edge r"></span>`;
@@ -509,11 +542,10 @@ function fadeDrag(c, side, e) {
     if ((c.fadeIn || 0) + (c.fadeOut || 0) > dur) { if (side === 'in') c.fadeIn = dur - (c.fadeOut || 0); else c.fadeOut = dur - (c.fadeIn || 0); }
     // update just this clip's fade visuals — full render happens on release
     if (clipEl) {
-      const wpx = Math.max(6, dur * pxPerSec - 2);
       const fi = Math.max(0, c.fadeIn || 0) * pxPerSec, fo = Math.max(0, c.fadeOut || 0) * pxPerSec;
       const set = (sel, prop, val) => { const n = clipEl.querySelector(sel); if (n) n.style[prop] = val; };
       set('.fade-tri.in', 'width', fi + 'px'); set('.fade-tri.out', 'width', fo + 'px');
-      set('.fade-h.in', 'left', fi + 'px'); set('.fade-h.out', 'left', (wpx - fo) + 'px');
+      syncFadeZones(clipEl, c);
     }
     engine.markGradeDirty();
   };

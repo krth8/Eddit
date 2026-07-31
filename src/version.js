@@ -3,9 +3,16 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.1';
+export const APP_VERSION = '0.9.2';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.2', date: '2026-07-31', title: 'Easier trimming on the timeline',
+    items: [
+      'Trimming and fading no longer fight for the same spot: the top of each clip end drags the fade, the rest of the height trims.',
+      'On phones and tablets the selected clip gets a split handle at each end — fade on top, trim below — with far bigger touch targets.',
+    ],
+  },
   {
     v: '0.9.1', date: '2026-07-25', title: 'RAW, colour science and a smarter timeline',
     items: [
