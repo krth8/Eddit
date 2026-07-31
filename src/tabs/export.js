@@ -190,7 +190,7 @@ async function render() {
   // ---- mix the timeline audio offline (dedicated tracks + video-clip audio) ----
   let audioBuf = null;
   let audioOk = false;
-  if ('AudioEncoder' in window && audioClips().some((c) => !c.mute)) {
+  if ('AudioEncoder' in window && audioClips().some(({ clip }) => !clip.mute)) {
     try { audioOk = (await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: 48000, numberOfChannels: 2, bitrate: 192000 })).supported; } catch { audioOk = false; }
   }
   if (audioOk) {

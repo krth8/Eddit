@@ -4,18 +4,20 @@
 // when the playhead starts mid-clip or mid-fade.
 import { state, clipEnd } from '../state.js';
 
-// Every clip that can contribute audio: dedicated audio tracks + video-clip audio.
+// Every clip that can contribute audio: dedicated audio tracks + video-clip
+// audio. `fade` says whether the clip's fadeIn/fadeOut belong to its SOUND —
+// on a video clip they are a picture fade and must leave the audio alone.
 export function audioClips() {
   const out = [];
-  for (const tr of state.tracks.audio) for (const c of tr.clips) out.push(c);
-  for (const tr of state.tracks.video) for (const c of tr.clips) out.push(c);
+  for (const tr of state.tracks.audio) for (const c of tr.clips) out.push({ clip: c, fade: true });
+  for (const tr of state.tracks.video) for (const c of tr.clips) out.push({ clip: c, fade: false });
   return out;
 }
 
 // Schedule one clip's audio into `ctx`, connected to `dest`, relative to
 // `playhead` (the timeline second aligned to ctx.currentTime). Returns the
 // created nodes so callers can adjust them live, or null if nothing plays.
-export function scheduleClipAudio(ctx, dest, buf, c, playhead) {
+export function scheduleClipAudio(ctx, dest, buf, c, playhead, applyFade = true) {
   const ce = clipEnd(c);
   const clipStartTL = Math.max(playhead, c.start);
   if (ce <= playhead) return null;
@@ -32,7 +34,8 @@ export function scheduleClipAudio(ctx, dest, buf, c, playhead) {
   const gain = ctx.createGain();
 
   const cs = c.start, ceLocal = ce - cs;
-  const fi = Math.max(0, c.fadeIn || 0), fo = Math.max(0, c.fadeOut || 0);
+  const fi = applyFade ? Math.max(0, c.fadeIn || 0) : 0;
+  const fo = applyFade ? Math.max(0, c.fadeOut || 0) : 0;
   const env = (localT) => {
     let e = 1;
     if (fi > 0) e = Math.min(e, localT / fi);
@@ -66,13 +69,13 @@ export async function mixTimelineAudio(dur, decodeFor, sampleRate = 48000) {
   master.gain.value = state.masterVolume ?? 1;
   master.connect(ctx.destination);
   let scheduled = 0;
-  for (const c of clips) {
+  for (const { clip: c, fade } of clips) {
     if (c.mute) continue;
     const media = state.media.find((m) => m.id === c.mediaId);
     let buf = null;
     try { buf = await decodeFor(media, ctx); } catch { buf = null; }
     if (!buf) continue;
-    if (scheduleClipAudio(ctx, master, buf, c, 0)) scheduled++;
+    if (scheduleClipAudio(ctx, master, buf, c, 0, fade)) scheduled++;
   }
   if (!scheduled) return null;
   return ctx.startRendering();
