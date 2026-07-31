@@ -145,7 +145,13 @@ export const kvGet = (k) => idbGet(k);
 export const kvSet = (k, v) => idbSet(k, v);
 
 // ---- OPFS proxy cache ----
-export function proxyKey(file, proxyH) { return `${(file?.name || 'clip').replace(/[^\w.-]/g, '_')}__${file?.size || 0}__${proxyH}.mp4`; }
+// Bumped when the proxy FORMAT changes so old cached files must not be reused.
+// g2 added the audio track: before it every proxy was silent, and since playback
+// prefers the proxy over the source, so was the timeline. Stale generations are
+// simply never looked up again — Media ▸ clear cache reclaims the space.
+export const PROXY_GEN = 'g2';
+export function proxyKey(file, proxyH) { return `${(file?.name || 'clip').replace(/[^\w.-]/g, '_')}__${file?.size || 0}__${proxyH}${PROXY_GEN}.mp4`; }
+export const isCurrentProxyKey = (k) => typeof k === 'string' && k.endsWith(`${PROXY_GEN}.mp4`);
 
 async function opfsDir() {
   if (!navigator.storage?.getDirectory) return null;

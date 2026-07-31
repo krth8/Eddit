@@ -25,8 +25,13 @@ export async function codecSupport() {
   return out;
 }
 
-function mkEncoder(Mux, pw, ph, framerate) {
-  const muxer = new Mux.Muxer({ target: new Mux.ArrayBufferTarget(), video: { codec: 'avc', width: pw, height: ph, frameRate: framerate }, fastStart: 'in-memory' });
+function mkEncoder(Mux, pw, ph, framerate, audio) {
+  const muxer = new Mux.Muxer({
+    target: new Mux.ArrayBufferTarget(),
+    video: { codec: 'avc', width: pw, height: ph, frameRate: framerate },
+    ...(audio ? { audio: { codec: 'aac', sampleRate: audio.sampleRate, numberOfChannels: audio.channels } } : {}),
+    fastStart: 'in-memory',
+  });
   const state = { err: null };
   const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
   // 0.4 bits/px/frame (~11 Mbps @720p30) — all-intra needs roughly double the
@@ -35,6 +40,57 @@ function mkEncoder(Mux, pw, ph, framerate) {
   return { muxer, encoder, state };
 }
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+
+// ── Proxy audio ───────────────────────────────────────────────────────────────
+// The proxy has to carry the source's audio: playback prefers it over the
+// original (engine._srcFor), so a silent proxy means a silent timeline the
+// moment the build lands. Export is unaffected — it decodes the original.
+//
+// decodeAudioData rather than WebCodecs AudioDecoder: it covers every container
+// and codec the browser can play without parsing an esds by hand, and the proxy
+// only needs something playable, not a bit-exact copy. Returns null when the
+// file has no audio, which is the ordinary case for screen recordings and RAW.
+async function sourceAudio(file) {
+  if (!('AudioEncoder' in window)) return null;
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OAC) return null;
+  let buf = null;
+  try {
+    buf = await new OAC(1, 1, 48000).decodeAudioData(await file.arrayBuffer());
+  } catch { return null; }
+  if (!buf || !buf.length) return null;
+  const channels = Math.min(2, buf.numberOfChannels);   // browsers won't play a camera's 4+ tracks anyway
+  const sampleRate = buf.sampleRate;
+  try {
+    const s = await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate, numberOfChannels: channels, bitrate: 128000 });
+    if (!s.supported) return null;
+  } catch { return null; }
+  return { buf, sampleRate, channels };
+}
+
+// AAC-encode the decoded buffer into the muxer (the planar-float sibling of
+// mcraw.js's encodePcm). Callers treat a throw as non-fatal: a proxy with
+// picture and no sound still beats no proxy.
+async function encodeProxyAudio(muxer, a) {
+  let err = null;
+  const enc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => { err = e; } });
+  enc.configure({ codec: 'mp4a.40.2', sampleRate: a.sampleRate, numberOfChannels: a.channels, bitrate: 128000 });
+  const chans = [...Array(a.channels)].map((_, i) => a.buf.getChannelData(Math.min(i, a.buf.numberOfChannels - 1)));
+  const total = a.buf.length, BLOCK = Math.round(a.sampleRate / 5);
+  for (let off = 0; off < total; off += BLOCK) {
+    const n = Math.min(BLOCK, total - off);
+    const planar = new Float32Array(a.channels * n);
+    for (let c = 0; c < a.channels; c++) planar.set(chans[c].subarray(off, off + n), c * n);
+    const data = new AudioData({
+      format: 'f32-planar', sampleRate: a.sampleRate, numberOfFrames: n, numberOfChannels: a.channels,
+      timestamp: Math.round((off / a.sampleRate) * 1e6), data: planar,
+    });
+    enc.encode(data); data.close();
+    if (err) throw err;
+  }
+  await enc.flush(); enc.close();
+  if (err) throw err;
+}
 
 // Background-safe analysis of an all-intra H.264 proxy: demux + WebCodecs
 // decode of N evenly spaced frames → filmstrip sprite, poster thumb, dims and
@@ -106,7 +162,7 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
 
   // tier 1: WebCodecs decode
   if (canEncode && dem && decodeSupported) {
-    try { return await proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl); }
+    try { return await proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file); }
     catch (e) { errs.push('webcodecs: ' + (e?.message || e)); }
   }
   if (ctl?.cancelled) throw new Error('cancelled');
@@ -130,7 +186,7 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
   throw new Error(errs.join(' | ') || 'no available decode path');
 }
 
-async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl) {
+async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
   const { codec, description, samples, timescale, width, height, fps } = dem;
   const framerate = Math.min(60, Math.max(1, Math.round(fps || 30)));
   // Bake the container's display rotation into the proxy — the decoder outputs
@@ -140,7 +196,9 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl) {
   const dispW = (rot === 90 || rot === 270) ? height : width;
   const dispH = (rot === 90 || rot === 270) ? width : height;
   const ph = even(targetH), pw = even(dispW * (ph / dispH));
-  const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, framerate);
+  // decoded up front: the muxer needs the audio track declared at construction
+  const audio = file ? await sourceAudio(file) : null;
+  const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, framerate, audio);
 
   const canvas = new OffscreenCanvas(pw, ph);
   const cx = canvas.getContext('2d');
@@ -180,6 +238,10 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl) {
   if (decErr) { try { decoder.close(); encoder.close(); } catch {} throw new Error('decode error: ' + (decErr.message || decErr)); }
   await encoder.flush();
   if (state.err) throw new Error('encode error: ' + (state.err.message || state.err));
+  if (audio) {
+    try { await encodeProxyAudio(muxer, audio); }
+    catch (e) { console.warn('[proxy] audio encode failed — proxy stays silent:', e?.message || e); }
+  }
   muxer.finalize(); decoder.close(); encoder.close();
   const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
   return { url: URL.createObjectURL(blob), blob, width: pw, height: ph, size: blob.size, method: 'webcodecs' };
@@ -200,7 +262,8 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
     if (!W0 || !H0) throw new Error('the browser could not decode this file (unsupported codec/container)');
     const ph = even(targetH), pw = even(W0 * (ph / H0));
     const fr = Math.min(60, Math.max(1, Math.round(fps)));
-    const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, fr);
+    const audio = await sourceAudio(file);
+    const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, fr, audio);
     const canvas = new OffscreenCanvas(pw, ph);
     const cx = canvas.getContext('2d');
 
@@ -246,6 +309,10 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
 
     await encoder.flush();
     if (state.err) throw new Error('encode error: ' + (state.err.message || state.err));
+    if (audio) {
+      try { await encodeProxyAudio(muxer, audio); }
+      catch (e) { console.warn('[proxy] audio encode failed — proxy stays silent:', e?.message || e); }
+    }
     muxer.finalize(); encoder.close();
     const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
     return { url: URL.createObjectURL(blob), blob, width: pw, height: ph, size: blob.size, method: 'video' };

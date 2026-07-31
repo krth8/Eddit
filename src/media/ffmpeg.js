@@ -213,7 +213,13 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP,
       // all-intra needs no lookahead — dropping it saves per-thread buffers
       '-x264-params', 'rc-lookahead=0:sync-lookahead=0',
       '-threads', String(threads),
-      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', outName,
+      // The proxy carries the audio: playback prefers the proxy over the source
+      // (engine._srcFor), so stripping it here made every clip go silent the
+      // moment its proxy landed. AAC 128k stereo is cheap next to the video.
+      // `-ac 2` because some camera files carry more channels than the browser
+      // will play back, and a missing audio stream must not fail the run.
+      '-c:a', 'aac', '-b:a', '128k', '-ac', '2',
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outName,
     ]);
     let data = null;
     try { data = await withTimeout(ff.readFile(outName), 20000, 'read timed out'); } catch {}

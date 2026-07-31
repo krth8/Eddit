@@ -5,7 +5,7 @@ import { probe, makeStrip } from '../media/probe.js';
 import { makeProxy, codecSupport, analyzeProxy } from '../media/proxy.js';
 import { demux } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
-import { proxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
+import { proxyKey, isCurrentProxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut, LUT_CATEGORIES } from '../luts.js';
 import { ffmpegLoaded, ffmpegMultithread, abortTranscode } from '../media/ffmpeg.js';
 import { isMcraw, openMcraw } from '../media/mcraw.js';
@@ -786,7 +786,9 @@ export async function restore(proj) {
       proxyKey: pm.proxyKey || null, proxyW: pm.proxyW, proxyH: pm.proxyH,
       proxyReady: false, proxyStatus: 'unlinked',
     };
-    let key = pm.proxyKey || null;
+    // a key from an older proxy generation names a file we must not reuse (see
+    // PROXY_GEN) — drop it and let the rebuild below produce a current one
+    let key = isCurrentProxyKey(pm.proxyKey) ? pm.proxyKey : null;
     let blob = key ? await loadProxy(key) : null;
     if (!blob) {
       // the saved project may predate the proxy finishing (hard stop before
