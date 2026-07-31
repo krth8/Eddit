@@ -470,17 +470,19 @@ function buildLane(kind, index) {
 
 // A fade handle is a fixed-width strip on the clip's top edge. It's clamped to
 // stay fully inside the clip: centred on the fade point it used to hang half
-// outside at fade 0, and overflow:hidden ate that half. --fx keeps the diamond
-// on the real fade point inside the (possibly off-centre) strip.
+// outside at fade 0, and overflow:hidden ate that half. --fx places the drawn
+// bar on the real fade point inside the (possibly off-centre) strip.
 function fadeZone(w, at) {
-  // 26px on touch matches the trim bar below it, so at fade 0 the two stack
-  // into one split handle instead of a lopsided T
+  // 26px on touch matches the trim zone below it, so at fade 0 the two bars
+  // stack into one split handle instead of a lopsided T
   const fw = Math.min(isTouchUI() ? 26 : 22, Math.max(10, w * 0.35));
   const left = clamp(at - fw / 2, 0, Math.max(0, w - fw));
-  // the diamond is the handle's grip, not a readout — keep it whole inside the
-  // strip (at fade 0 the true point is the clip edge, which rendered as a half
-  // diamond). The fade gradient still shows the real extent.
-  const fx = clamp(at - left, 7, Math.max(7, fw - 7));
+  // Keep the bar whole inside the strip — at fade 0 the true point is the clip
+  // edge, so a centred bar would be half cut. Clamping by half the bar width
+  // (--hw in the stylesheet) also lands it flush on the trim bar below it. The
+  // fade gradient still shows the real extent.
+  const hw = isTouchUI() ? 13 : 5;
+  const fx = clamp(at - left, hw / 2, Math.max(hw / 2, fw - hw / 2));
   return { fw, left, fx };
 }
 
