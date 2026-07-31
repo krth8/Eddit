@@ -596,7 +596,7 @@ export function renderPool() {
   if (!items.length) { pool.innerHTML = '<div class="statline" style="grid-column:1/-1">No media. Import in the Media tab.</div>'; return; }
   for (const m of items) {
     const d = document.createElement('div');
-    d.className = 'pool-thumb';
+    d.className = 'pool-thumb' + (m.kind === 'audio' ? ' is-audio' : '');
     d.title = m.name;
     d.innerHTML = `<div class="pt-img">`
       + `<span class="pt-dur">${fmtShort(m.duration)}</span>${m.proxyReady ? '<span class="pt-proxy" title="proxy ready"></span>' : ''}</div>`
@@ -613,13 +613,16 @@ export function renderPool() {
 }
 
 function appendToTimeline(mediaId) {
-  // place at the playhead; if a clip already covers that spot on V1, snap to
-  // just after it so nothing overlaps
+  // place at the playhead; if a clip already covers that spot on the target
+  // lane, snap to just after it so nothing overlaps. Audio-only media lands on
+  // A1 — it has no picture, so V1 would give an invisible clip.
+  const kind = getMedia(mediaId)?.kind === 'audio' ? 'audio' : 'video';
+  const lane = (kind === 'audio' ? state.tracks.audio : state.tracks.video)[0];
   let start = Math.max(0, state.playhead || 0);
-  for (const cc of [...state.tracks.video[0].clips].sort((a, b) => a.start - b.start)) {
+  for (const cc of [...lane.clips].sort((a, b) => a.start - b.start)) {
     if (start >= cc.start - 1e-4 && start < clipEnd(cc) - 1e-4) start = clipEnd(cc);
   }
-  const c = addClipAt(mediaId, { kind: 'video', trackIndex: 0, start });
+  const c = addClipAt(mediaId, { kind, trackIndex: 0, start });
   if (c) selectClip(c.id);
 }
 
@@ -701,6 +704,9 @@ function poolPointerDrag(m, e, thumb) {
     if (!dragging) { appendToTimeline(m.id); toast('Added ' + m.name); return; } // tap = add to the end
     const track = trackAt(ev.clientX, ev.clientY);
     if (track) {
+      // audio-only media on a VIDEO lane would be an invisible clip that also
+      // breaks the program — refuse rather than silently rerouting it
+      if (m.kind === 'audio' && track.dataset.kind !== 'audio') { toast('Audio goes on an audio track', true); return; }
       const start2 = Math.max(0, snap((ev.clientX - el('tlInner').getBoundingClientRect().left) / pxPerSec));
       const clip = addClipAt(m.id, { kind: track.dataset.kind, trackIndex: +track.dataset.index, start: start2 });
       if (clip) selectClip(clip.id);

@@ -258,11 +258,13 @@ export function addSolid(color = '#0e0e12', start = 0, dur = 5) {
   return c;
 }
 
-// append to end of V1 (used by double-click / "add to timeline")
+// append to the end of V1 — or A1 for a music/audio import, which has no
+// picture and belongs on an audio lane (used by double-click / "add to timeline")
 export function appendClip(mediaId) {
-  const v = state.tracks.video[0];
-  const start = v.clips.reduce((a, c) => Math.max(a, clipEnd(c)), 0);
-  return addClipAt(mediaId, { kind: 'video', trackIndex: 0, start });
+  const kind = getMedia(mediaId)?.kind === 'audio' ? 'audio' : 'video';
+  const t = (kind === 'audio' ? state.tracks.audio : state.tracks.video)[0];
+  const start = t.clips.reduce((a, c) => Math.max(a, clipEnd(c)), 0);
+  return addClipAt(mediaId, { kind, trackIndex: 0, start });
 }
 
 export function allClips() {

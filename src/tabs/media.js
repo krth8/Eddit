@@ -4,7 +4,7 @@ import { el, $$, fmtShort, fmtTC, toast, uid, clamp } from '../util.js';
 import { probe, makeStrip } from '../media/probe.js';
 import { makeProxy, codecSupport, analyzeProxy } from '../media/proxy.js';
 import { demux } from '../media/demux.js';
-import { pickMedia, pickFolder, isMediaFile, handleMap, pathMap } from '../media/pick.js';
+import { pickMedia, pickFolder, isMediaFile, isAudioFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, isCurrentProxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut, LUT_CATEGORIES } from '../luts.js';
 import { ffmpegLoaded, ffmpegMultithread, abortTranscode } from '../media/ffmpeg.js';
@@ -30,7 +30,7 @@ export async function initMedia(eng) {
   const doPick = async () => { const files = await pickMedia(); if (files.length) importFiles(files); };
   el('importBtn').onclick = doPick;
   el('emptyImport').onclick = doPick;
-  el('importFolderBtn').onclick = async () => { const files = await pickFolder(); if (files.length) importFiles(files); };
+  el('importFolderBtn').onclick = async () => { const files = await pickFolder(); if (files.length) importFiles(files, { explicit: false }); };
   el('fileInput').onchange = (e) => importFiles([...e.target.files]); // legacy fallback
 
   // drag & drop anywhere on the Media tab
@@ -116,14 +116,31 @@ export async function initMedia(eng) {
 
 const VIDEO_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts|m2ts|3gp|hevc|mcraw)$/i;
 
-async function importFiles(files) {
-  // Folder imports sweep in sidecars (wav/cube/bmp/Thumbs.db…) — keep only
-  // real video files.
+// duration of an audio file, metadata only
+function audioDuration(url) {
+  return new Promise((resolve, reject) => {
+    const a = new Audio();
+    a.preload = 'metadata';
+    const done = (fn, v) => { clearTimeout(t); a.removeAttribute('src'); fn(v); };
+    const t = setTimeout(() => done(reject, new Error('audio metadata timed out')), 15000);
+    a.onloadedmetadata = () => done(resolve, isFinite(a.duration) ? a.duration : 0);
+    a.onerror = () => done(reject, new Error('the browser could not read this audio file'));
+    a.src = url;
+  });
+}
+
+// `explicit` = the user named these files (picker, drag-drop). A FOLDER import
+// is not explicit: camera rigs drop .wav next to the footage, and the old
+// blanket filter existed to keep those sidecars out of the pool. So audio is
+// imported when it was chosen and skipped when it was merely swept up.
+async function importFiles(files, { explicit = true } = {}) {
   files = [...files];
-  const vids = files.filter((f) => f.type.startsWith('video') || VIDEO_EXT.test(f.name));
-  const skipped = files.length - vids.length;
-  if (!vids.length) return toast(skipped ? 'No video files in the selection' : 'No files selected', true);
-  if (skipped) toast(`${skipped} non-video file${skipped === 1 ? '' : 's'} skipped`);
+  const isVid = (f) => f.type.startsWith('video') || VIDEO_EXT.test(f.name);
+  const keep = files.filter((f) => isVid(f) || (explicit && isAudioFile(f)));
+  const skipped = files.length - keep.length;
+  if (!keep.length) return toast(skipped ? 'No video or audio files in the selection' : 'No files selected', true);
+  if (skipped) toast(`${skipped} unsupported file${skipped === 1 ? '' : 's'} skipped`);
+  const vids = keep;
 
   // PHASE 1 — index: every clip gets its pool card up front. Probing and proxy
   // building follow in the background, so one slow/exotic file can never block
@@ -138,11 +155,14 @@ async function importFiles(files) {
       work.push({ m: existing, file, relink: true });
       continue;
     }
+    const audioOnly = isAudioFile(file);
     const m = addMedia({
       size: file.size, path: pathMap.get(file) || file.webkitRelativePath || '',
       name: file.name, file, handle: handleMap.get(file) || null, url: null,
       width: 0, height: 0, duration: 0, thumb: null, playable: false,
-      proxyReady: false, proxyUrl: null, proxyStatus: el('autoProxy').checked ? 'queued' : '',
+      kind: audioOnly ? 'audio' : 'video',
+      // audio has no picture to proxy — the mixer decodes the original
+      proxyReady: false, proxyUrl: null, proxyStatus: (!audioOnly && el('autoProxy').checked) ? 'queued' : '',
     });
     work.push({ m, file, relink: false });
   }
@@ -153,6 +173,19 @@ async function importFiles(files) {
   // ffmpeg tier also converts clips nothing native can decode)
   for (const { m, file, relink } of work) {
     if (m.removed) continue;
+    if (m.kind === 'audio') {
+      // duration off an <audio> element rather than decodeAudioData: metadata
+      // only, so a 60 MB album track doesn't get fully decoded into memory just
+      // to draw a pool card. The waveform (getPeaks) decodes lazily when a clip
+      // for it actually lands on the timeline.
+      m.url = URL.createObjectURL(file);
+      try { m.duration = await audioDuration(m.url); } catch (e) { console.warn('[import] audio probe failed', file.name, e); }
+      m.playable = true;
+      updateCard(m);
+      bus.emit('media:changed');
+      if (relink) toast('Re-linked ' + file.name);
+      continue;
+    }
     if (isMcraw(file.name)) {
       // RAW: <video>/demux can't read it — the wasm decoder supplies the
       // metadata and the proxy becomes the only playable form of the clip
@@ -658,6 +691,7 @@ export function updateCard(m, card) {
   const st = m.proxyStatus;
   const pend = st === 'queued' || st === 'building';   // unlinked = idle, no spinner
   card.className = 'clip'
+    + (m.kind === 'audio' ? ' is-audio' : '')
     + (m.id === state.selectedMediaId ? ' active' : '')
     + (msel.has(m.id) ? ' msel' : '')
     + (pend ? ' proxy-pending' : '')
@@ -688,8 +722,11 @@ export function updateCard(m, card) {
   badge.style.display = bt ? '' : 'none';
   card.querySelector('.dur-badge').textContent = fmtShort(m.duration);
   card.querySelector('.cap').textContent = m.name;
-  card.querySelector('.sub').textContent = `${m.width || '?'}×${m.height || '?'}` +
-    (st === 'failed' ? ' · failed' : m.proxyMethod === 'ffmpeg' ? ' · sw' : m.proxyMethod === 'video' ? ' · sw' : '');
+  // audio has no frame size — "?×?" there reads as a failed probe
+  card.querySelector('.sub').textContent = m.kind === 'audio'
+    ? `Audio · ${fmtShort(m.duration || 0)}`
+    : `${m.width || '?'}×${m.height || '?'}`
+      + (st === 'failed' ? ' · failed' : m.proxyMethod === 'ffmpeg' ? ' · sw' : m.proxyMethod === 'video' ? ' · sw' : '');
   card.title = st === 'failed' ? 'Proxy failed: ' + (m.proxyError || 'unknown')
     : (st === 'unlinked' && m.handle) ? 'Click to restore file access' : '';
 }
@@ -783,6 +820,7 @@ export async function restore(proj) {
       id: pm.id, name: pm.name, size: pm.size, path: pm.path || '', file: null, url: null,
       width: pm.width, height: pm.height, duration: pm.duration, thumb: pm.thumb,
       strip: pm.strip || null, handle: pm.handle || null,
+      kind: pm.kind || 'video',
       proxyKey: pm.proxyKey || null, proxyW: pm.proxyW, proxyH: pm.proxyH,
       proxyReady: false, proxyStatus: 'unlinked',
     };
