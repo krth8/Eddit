@@ -5,7 +5,7 @@
 
 **Cut, grade and export video — entirely in your browser.**
 
-<a href="https://krth8.github.io/Eddit/"><img src="https://img.shields.io/badge/%E2%96%B6%C2%A0%C2%A0TRY%20IT-5fd598?style=for-the-badge&labelColor=161c24" alt="Try Eddit" height="48"></a>
+<a href="https://eddit.kristian-thuesen.workers.dev/"><img src="https://img.shields.io/badge/%E2%96%B6%C2%A0%C2%A0TRY%20IT-5fd598?style=for-the-badge&labelColor=161c24" alt="Try Eddit" height="48"></a>
 
 </div>
 

@@ -52,16 +52,47 @@ jobs:
       # never enters this list.
       #
       # Uploads run CONCURRENTLY: wrangler has no bulk/directory put, so it's one
-      # process per file, each with ~1-3s of CLI startup. xargs -P fans them out;
-      # a non-zero exit from any put fails the step.
+      # process per file, each with ~1-3s of CLI startup. xargs -P fans them out.
+      #
+      # The exit code alone is NOT a reliable success signal — running this by
+      # hand, 7 of 60 files were silently absent from the bucket afterwards while
+      # every put had exited 0. So each upload is confirmed by its "Upload
+      # complete" line and retried up to 3 times; only then does xargs' 123 mean
+      # what it should. The post-upload verification step below is the backstop.
       #
       # Note: this only ever ADDS or OVERWRITES. A file deleted from the repo
       # lingers in the bucket until removed by hand (`wrangler r2 object delete`).
       - name: Upload site to R2
         run: |
+          upload() {
+            for attempt in 1 2 3; do
+              out=$(wrangler r2 object put "eddit-app/$1" --file "$1" 2>&1)
+              if printf '%s' "$out" | grep -q 'Upload complete'; then echo "→ $1"; return 0; fi
+              echo "::warning::retry $attempt for $1"
+              sleep 2
+            done
+            echo "::error::upload failed after 3 attempts: $1"
+            printf '%s\n' "$out" | tail -5
+            return 1
+          }
+          export -f upload
           git ls-files -z \
             | grep -zvE '^(\.github/|worker/|wrangler\.toml$|\.gitignore$|\.nojekyll$|CLAUDE\.md$)' \
-            | xargs -0 -P 8 -I{} bash -c 'echo "→ $1"; wrangler r2 object put "eddit-app/$1" --file "$1"' _ {}
+            | xargs -0 -P 8 -I{} bash -c 'upload "$1"' _ {}
 
       - name: Deploy Worker
         run: wrangler deploy
+
+      # Ask the live site for every file that was supposed to ship. A missing
+      # module is otherwise invisible until someone opens the app and a random
+      # import 404s — which is exactly how the silent-drop problem above was
+      # found. Runs after the Worker deploy so it exercises the real path.
+      - name: Verify every file is reachable
+        run: |
+          base="https://eddit.kristian-thuesen.workers.dev"
+          export base
+          git ls-files -z \
+            | grep -zvE '^(\.github/|worker/|wrangler\.toml$|\.gitignore$|\.nojekyll$|CLAUDE\.md$)' \
+            | xargs -0 -P 10 -I{} bash -c \
+                'c=$(curl -s -o /dev/null -w "%{http_code}" "$base/$1?cb=$RANDOM"); \
+                 [ "$c" = "200" ] || { echo "::error::$c for $1"; exit 1; }'
