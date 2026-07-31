@@ -224,7 +224,10 @@ export function initColor(eng) {
   let stripT = 0;
   bus.on('frame:drawn', () => {
     if (state.activeTab !== 'color') return;
-    if (state.playing) {
+    // …but NOT while a clip loop is running: the loop is pinned to the selected
+    // clip, and re-selecting whatever sits on top mid-loop would move the loop
+    // with it and walk off down the timeline.
+    if (state.playing && !state.clipLoop) {
       const seg = programAt(state.playhead);
       if (seg && seg.clip.id !== state.selectedClipId) {
         state.selectedClipId = seg.clip.id;

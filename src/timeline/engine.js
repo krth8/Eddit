@@ -126,6 +126,10 @@ export class Engine {
   toggle() { state.playing ? this.pause() : this.play(); }
 
   _advance() {
+    // A loop outranks the cut. _loop() wraps at loop.b - 0.02 but a segment
+    // hands over at out - 0.03, so the cut fires first and the next clip gets a
+    // frame or two on screen before the wrap pulls it back.
+    if (this.loop && state.playhead >= this.loop.b - 0.06) { this.seek(Math.max(0, this.loop.a) + 0.001); return; }
     const cur = this.cur.seg;
     const prog = videoProgram();
     const idx = cur ? prog.findIndex((s) => s.clip === cur.clip && Math.abs(s.start - cur.start) < 1e-3) : -1;

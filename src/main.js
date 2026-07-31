@@ -1,5 +1,5 @@
 // Bootstrap: WebGPU renderer + playback engine + tab wiring + transport + keys.
-import { state, bus, timelineDuration, videoProgram, addTitle, toggleMarker, rippleDelete, appendClip, defaultGrade } from './state.js';
+import { state, bus, timelineDuration, videoProgram, addTitle, toggleMarker, rippleDelete, appendClip, defaultGrade, findClipRef, clipEnd } from './state.js';
 import { el, $$, fmtTC, toast } from './util.js';
 import { Renderer } from './gpu/renderer.js';
 import { Engine } from './timeline/engine.js';
@@ -216,14 +216,21 @@ let clipLoop = false, ioLoop = false;
 function applyLoop() {
   let range = null;
   if (clipLoop) {
-    const seg = videoProgram().find((s) => s.clip.id === state.selectedClipId);
-    if (seg) range = { a: seg.start, b: seg.end }; else clipLoop = false;
+    // The clip's OWN span — not videoProgram(), which returns the visible
+    // program: a clip covered by something on a higher track is chopped into
+    // pieces there, so .find() used to loop only its leading sliver, and a
+    // fully covered clip found nothing and switched the button back off.
+    const ref = state.selectedClipId ? findClipRef(state.selectedClipId) : null;
+    if (ref) range = { a: ref.clip.start, b: clipEnd(ref.clip) }; else clipLoop = false;
   }
   if (!range && ioLoop) {
     if (state.inPoint != null && state.outPoint != null && state.outPoint > state.inPoint + 0.05) range = { a: state.inPoint, b: state.outPoint };
     else ioLoop = false;
   }
   engine.setLoop(range);
+  // the Color tab reads this to stop its follow-the-playhead selection from
+  // stealing the loop (see tabs/color.js) — session-only, like inPoint/outPoint
+  state.clipLoop = clipLoop;
   el('cLoop')?.classList.toggle('on', clipLoop);
   el('eLoop')?.classList.toggle('on', ioLoop);
 }
