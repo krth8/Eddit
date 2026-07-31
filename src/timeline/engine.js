@@ -258,9 +258,46 @@ export class Engine {
         { tl: Math.max(0, state.playhead - clip.start), dur: clipTLDur(clip) });
       return { source: cv, w: cv.width, h: cv.height };
     }
+    // Paused/scrubbing: pull this layer out of the frame server instead of
+    // seeking its <video>. Seeking cost 30ms p50 per composite position against
+    // 0.6ms for the single-layer frame-server path — the compositing branch was
+    // simply never wired to it. While PLAYING the elements stay in charge: they
+    // run at a measured 16.7ms p50 with no jitter, and per-frame seeking during
+    // playback is what janks on phones (see _layerEl).
+    if (!state.playing) {
+      const bmp = this._layerBitmap(clip);
+      if (bmp) return { source: bmp, w: bmp.width, h: bmp.height };
+    }
     const el = this._layerEl(clip);
     if (!el || !el.videoWidth || el.readyState < 2) return null;   // no decoded frame yet
     return { source: el, w: el.videoWidth, h: el.videoHeight };
+  }
+
+  // Frame for one composited layer, or null while it decodes — returning null
+  // makes _composite hold the previous frame, which is what it already does for
+  // a video that hasn't decoded yet. No stale bitmap is kept: the frame server
+  // owns them and closes them on eviction, so holding one risks drawing a dead
+  // handle (a closed ImageBitmap reports width 0, which is also checked here).
+  _layerBitmap(clip) {
+    const m = getMedia(clip.mediaId);
+    if (!this.frameServer.supported || !m?.proxyReady || !m?.proxyBlob) return null;
+    if (!this._layerBmp) this._layerBmp = new Map();
+    const srcTime = clip.in + Math.max(0, state.playhead - clip.start) * (clip.speed || 1);
+    const key = srcTime.toFixed(3);
+    const hit = this._layerBmp.get(clip.id);
+    if (hit && hit.key === key && hit.bmp && hit.bmp.width > 0) return hit.bmp;
+    if (!hit || hit.pending !== key) {
+      const entry = hit || {};
+      entry.pending = key;
+      this._layerBmp.set(clip.id, entry);
+      this.frameServer.frameAt(m, srcTime).then((bmp) => {
+        const e = this._layerBmp.get(clip.id);
+        if (!e || e.pending !== key) return;      // a newer position took over
+        e.key = key; e.bmp = bmp; e.pending = null;
+        if (!state.playing) this._drawOnce();     // paint it now that it exists
+      }).catch(() => {});
+    }
+    return null;
   }
 
   _drawTransition(tr) {
@@ -353,9 +390,10 @@ export class Engine {
     }
     this._ensureCanvasSize(layers[0].clip);     // base (bottom) layer sets output size
     // release video elements for clips that fell off the timeline
-    if (this._layerEls) {
+    if (this._layerEls || this._layerBmp) {
       const liveIds = new Set(state.tracks.video.flatMap((tr) => tr.clips.map((c) => c.id)));
-      for (const [id, el] of this._layerEls) if (!liveIds.has(id)) { try { el.removeAttribute('src'); el.load(); } catch {} this._layerEls.delete(id); }
+      if (this._layerEls) for (const [id, el] of this._layerEls) if (!liveIds.has(id)) { try { el.removeAttribute('src'); el.load(); } catch {} this._layerEls.delete(id); }
+      if (this._layerBmp) for (const id of this._layerBmp.keys()) if (!liveIds.has(id)) this._layerBmp.delete(id);
     }
     // resolve every layer's source BEFORE clearing: a not-yet-decoded video
     // must hold the previous picture, not black-flash or pop layers in and out
@@ -392,6 +430,10 @@ export class Engine {
     } else {
       this._latestReq = null;   // kill any queued frame-server draw
       this._ensureVideoRaf(); this._sizeCanvas(seg.clip); this._loadInto(this.cur, seg, src);
+      // Draw NOW rather than waiting for the raf tick. For a composited scrub
+      // this is what issues the frame-server requests, and deferring them to the
+      // next frame put a whole 16.7ms of scheduling in front of a 0.5ms decode.
+      if (composite) this._drawOnce();
     }
     this.onTick?.(state.playhead, dur);
   }
