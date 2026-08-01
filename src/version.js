@@ -3,9 +3,16 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.3';
+export const APP_VERSION = '0.9.4';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.4', date: '2026-08-01', title: 'Smooth looping and a roomier timeline toolbar',
+    items: [
+      'Looping is smooth — playback no longer drops a frame each time it comes round.',
+      'The timeline toolbar fills the width on phones and tablets, with bigger buttons.',
+    ],
+  },
   {
     v: '0.9.3', date: '2026-07-31', title: 'Audio import, sound in playback, and much faster scrubbing',
     items: [
