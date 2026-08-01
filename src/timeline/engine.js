@@ -33,7 +33,7 @@ export class Engine {
   setCanvas(canvas) { this.canvas = canvas; this.renderer.setCanvas(canvas); this._sizeCanvas(); if (!state.playing) this._drawOnce(); }
   markGradeDirty() { this._gradeDirty = true; this.renderer.invalidateGradeCache?.(); if (!state.playing) this._drawOnce(); }
   // loop range {a,b} in timeline seconds (clip loop / in-out section), or null
-  setLoop(range) { this.loop = range && range.b > range.a + 0.04 ? range : null; }
+  setLoop(range) { this.loop = range && range.b > range.a + 0.04 ? range : null; this._loopArmed = null; }
 
   _srcFor(m) { return m && m.proxyReady && m.proxyUrl ? m.proxyUrl : (m ? m.url : ''); }
 
@@ -125,11 +125,58 @@ export class Engine {
   }
   toggle() { state.playing ? this.pause() : this.play(); }
 
+  // preload the loop's start into the spare A/B element, seeked to the exact
+  // source time, so _wrapLoop can swap it in with nothing left to decode
+  _armLoopWrap() {
+    const a = Math.max(0, this.loop.a) + 0.001;
+    const seg = programAt(a);
+    if (!seg || seg.clip.type === 'title') { this._loopArmed = null; return; }
+    const src = srcTimeAt(seg, a);
+    const key = seg.clip.id + '@' + src.toFixed(3);
+    // re-arm if a cut's _preloadNext has since claimed `pre` for itself
+    if (this._loopArmed === key && this.pre.seg && this.pre.seg.clip === seg.clip) return;
+    this._loopArmed = key;
+    this._loadInto(this.pre, seg, src);
+    this.pre.el.pause();
+  }
+
+  _wrapLoop() {
+    const a = Math.max(0, this.loop.a) + 0.001;
+    const seg = programAt(a);
+    // Fall back to the plain seek whenever the swap isn't safely available:
+    // nothing armed, a different clip in `pre`, or its first frame not decoded
+    // yet. Correctness over the one frame.
+    if (!this._loopArmed || !seg || !this.pre.seg || this.pre.seg.clip !== seg.clip || this.pre.el.readyState < 2) {
+      this._loopWrapSeeks = (this._loopWrapSeeks || 0) + 1;
+      this.seek(a); return;
+    }
+    this._loopWrapSwaps = (this._loopWrapSwaps || 0) + 1;
+    try { this.cur.el.pause(); } catch {}
+    this._swap();
+    state.playhead = a;
+    this._loopArmed = null;
+    this._lastWall = null;
+    this._sizeCanvas(seg.clip);
+    this._applyClipAV(seg.clip, this.cur.el);
+    this.cur.el.playbackRate = seg.clip.speed || 1;
+    this.cur.el.play().catch(() => {});
+    this.audio.seek(state.playhead, true);
+    // Draw on THIS tick. The swapped-in element already holds the loop's first
+    // frame, and returning without drawing (as the old seek path did) skipped a
+    // vsync all by itself — which was the whole stutter, not the seek.
+    this._drawOnce();
+    this.onTick?.(state.playhead, timelineDuration());
+  }
+
   _advance() {
     // A loop outranks the cut. _loop() wraps at loop.b - 0.02 but a segment
     // hands over at out - 0.03, so the cut fires first and the next clip gets a
     // frame or two on screen before the wrap pulls it back.
-    if (this.loop && state.playhead >= this.loop.b - 0.06) { this.seek(Math.max(0, this.loop.a) + 0.001); return; }
+    // …and it is THIS guard that actually performs the wrap in practice: a
+    // segment hands over at out - 0.03, which is earlier than _loop's own
+    // check at b - 0.02, so it gets here first. Route it through the same
+    // swap-or-seek path rather than seeking behind _wrapLoop's back.
+    if (this.loop && state.playhead >= this.loop.b - 0.06) { this._wrapLoop(); return; }
     const cur = this.cur.seg;
     const prog = videoProgram();
     const idx = cur ? prog.findIndex((s) => s.clip === cur.clip && Math.abs(s.start - cur.start) < 1e-3) : -1;
@@ -169,8 +216,13 @@ export class Engine {
   _loop() {
     this._raf = requestAnimationFrame(() => this._loop());
     if (!state.playing) return;
-    // loop wrap (clip loop / in-out section) — seek keeps playback rolling
-    if (this.loop && state.playhead >= this.loop.b - 0.02) { this.seek(Math.max(0, this.loop.a) + 0.001); return; }
+    // Arm the wrap while there is still time: get the loop's first frame into
+    // the spare element BEFORE we need it, so going back is a SWAP and not a
+    // seek. Seeking at the wrap costs exactly one dropped frame — measured at
+    // 33.6ms for the wrap against a 16.7ms cadence either side of it.
+    if (this.loop && state.playhead > this.loop.b - 1) this._armLoopWrap();
+    // loop wrap (clip loop / in-out section)
+    if (this.loop && state.playhead >= this.loop.b - 0.02) { this._wrapLoop(); return; }
     // rolling through a gap: wall-clock playhead over black until the next clip
     if (this._gapNext) {
       const now = performance.now();
