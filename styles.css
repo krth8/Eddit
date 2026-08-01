@@ -927,6 +927,14 @@ input[type=range]{accent-color:var(--accent)}
 :root[data-layout="narrow"] .tl-head{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 10px;margin-bottom:6px}
 :root[data-layout="narrow"] .tl-toolbar{max-width:100%;overflow-x:auto;scrollbar-width:none}
 :root[data-layout="narrow"] .tl-toolbar::-webkit-scrollbar{display:none}
+/* Touch layouts: the toolbar takes a full row of its own and the tools share
+   that width, rather than sitting centred at content width with 24px targets.
+   flex:1 1 0 with min-width:0 means they thin out on a narrow phone instead of
+   overflowing, so the scroll fallback above never has to engage. */
+:root[data-layout="narrow"] .tl-toolbar{flex:1 0 100%;padding:3px;gap:2px}
+:root[data-layout="narrow"] .tl-tool{flex:1 1 0;min-width:0;height:32px;border-radius:6px}
+:root[data-layout="narrow"] .tl-tool svg{width:16px;height:16px}
+:root[data-layout="narrow"] .tl-tsep{flex:none;margin:0 1px}
 :root[data-layout="narrow"] .tl-right{justify-self:auto;gap:8px}
 /* ── EDIT landscape phones: full-height viewer LEFT, full-height timeline RIGHT.
    stage-main is display:contents so its children join the #edit grid; the
@@ -952,8 +960,11 @@ input[type=range]{accent-color:var(--accent)}
    zoom/volume/+ ride on their own row below so neither is cramped */
 :root[data-layout="narrow"][data-orient="landscape"] #edit .tl-head{display:flex;flex-direction:column;
   align-items:stretch;flex-wrap:nowrap;gap:5px;margin-bottom:4px;overflow:visible}
+/* flex:none undoes the full-width row rule above: .tl-head is a COLUMN here, so
+   its `flex:1 0 100%` would grow the toolbar vertically instead of across. The
+   column already stretches it to full width. */
 :root[data-layout="narrow"][data-orient="landscape"] #edit .tl-toolbar{max-width:100%;overflow-x:auto;
-  scrollbar-width:none}
+  scrollbar-width:none;flex:none}
 :root[data-layout="narrow"][data-orient="landscape"] #edit .tl-toolbar::-webkit-scrollbar{display:none}
 :root[data-layout="narrow"][data-orient="landscape"] #edit .tl-right{display:flex;flex:none;
   justify-content:flex-start;justify-self:auto;gap:10px;overflow-x:auto;scrollbar-width:none}
