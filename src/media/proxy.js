@@ -54,7 +54,7 @@ function mkEncoder(Mux, pw, ph, framerate, audio) {
     ...(audio ? { audio: { codec: 'aac', sampleRate: audio.sampleRate, numberOfChannels: audio.channels } } : {}),
     fastStart: 'in-memory',
     // the first frame isn't always at 0: B-frame sources with an edit list
-    // (Screenity/Mediabunny, phones) decode to cts 0.033 since mp4box ignores
+    // (some screen recorders, phones) decode to cts 0.033 since mp4box ignores
     // the elst, and <video> capture can miss frame 0. 'strict' rejected every
     // chunk — so each tier ran a full pass, then failed at finalize.
     firstTimestampBehavior: 'offset',
