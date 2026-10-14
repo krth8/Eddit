@@ -3,9 +3,19 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.6';
+export const APP_VERSION = '0.9.7';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.7', date: '2026-10-14', title: 'Smaller proxies, screen recordings fixed',
+    items: [
+      'Screen recordings (like Screenity) and other clips whose first frame isn’t at zero no longer restart their proxy three times and end up in the slow converter — they build in one quick pass.',
+      'Proxies are 3–7× smaller on disk and still scrub smoothly, and clips smaller than the proxy size are no longer upscaled.',
+      'New default: only formats your browser can’t play get a proxy on import — H.264 clips are ready immediately. You can switch back to “All clips” in the Proxy panel.',
+      'The batch progress bar no longer starts over for each clip while a folder is importing.',
+      'Video clips can no longer be dropped onto audio tracks.',
+    ],
+  },
   {
     v: '0.9.6', date: '2026-10-14', title: 'Proxies that build in one go',
     items: [

@@ -658,6 +658,9 @@ function poolPointerDrag(m, e, thumb) {
   const x0 = e.clientX, y0 = e.clientY;
   let dragging = false, ghost = null;
   const trackAt = (x, y) => { const el2 = document.elementFromPoint(x, y); return el2 && el2.closest ? el2.closest('.tl-track') : null; };
+  // video media only lands on V lanes, audio only on A lanes — a wrong-kind
+  // lane gets no highlight or ghost, so the drag shows it won't take the clip
+  const kind = m.kind === 'audio' ? 'audio' : 'video';
   let laneGhost = null;   // clip-length preview rect inside the timeline
   const start = (ev) => {
     dragging = true;
@@ -684,7 +687,7 @@ function poolPointerDrag(m, e, thumb) {
     ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px';
     const track = trackAt(ev.clientX, ev.clientY);
     document.querySelectorAll('.tl-lane.drop').forEach((l) => l.classList.remove('drop'));
-    if (track) {
+    if (track && track.dataset.kind === kind) {
       track.parentElement.classList.add('drop');
       const innerR = el('tlInner').getBoundingClientRect();
       const t = Math.max(0, snap((ev.clientX - innerR.left) / pxPerSec));
@@ -705,8 +708,9 @@ function poolPointerDrag(m, e, thumb) {
     const track = trackAt(ev.clientX, ev.clientY);
     if (track) {
       // audio-only media on a VIDEO lane would be an invisible clip that also
-      // breaks the program — refuse rather than silently rerouting it
-      if (m.kind === 'audio' && track.dataset.kind !== 'audio') { toast('Audio goes on an audio track', true); return; }
+      // breaks the program, and video on an AUDIO lane loses its picture —
+      // refuse rather than silently rerouting it
+      if (track.dataset.kind !== kind) { toast(kind === 'audio' ? 'Audio goes on an audio track' : 'Video goes on a video track', true); return; }
       const start2 = Math.max(0, snap((ev.clientX - el('tlInner').getBoundingClientRect().left) / pxPerSec));
       const clip = addClipAt(m.id, { kind: track.dataset.kind, trackIndex: +track.dataset.index, start: start2 });
       if (clip) selectClip(clip.id);

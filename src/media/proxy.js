@@ -5,7 +5,7 @@
 // capture frames off it. Encoding is always H.264 via WebCodecs, which is
 // broadly supported. Errors are surfaced, not swallowed.
 import { demux, toChunk } from './demux.js';
-import { transcodeToProxy } from './ffmpeg.js';
+import { transcodeToProxy, PROXY_GOP } from './ffmpeg.js';
 import { probe } from './probe.js';
 import { isMcraw, proxyViaMcraw } from './mcraw.js';
 
@@ -32,9 +32,11 @@ export async function codecSupport() {
 function encoderConfig(pw, ph, framerate) {
   const mbps = Math.ceil(pw / 16) * Math.ceil(ph / 16) * framerate;
   const [lvl, maxBr] = mbps <= 245760 ? ['28', 20e6] : mbps <= 522240 ? ['2a', 50e6] : ['33', 135e6];
-  // 0.4 bits/px/frame (~11 Mbps @720p30) — all-intra needs roughly double the
-  // long-GOP budget to look clean; the cost is disk only, playback is easy
-  const bitrate = Math.min(Math.round(pw * ph * framerate * 0.4), Math.round(maxBr * 0.9));
+  // 0.2 bits/px/frame (~5.5 Mbps @720p30) with a keyframe every PROXY_GOP
+  // frames. All-intra needed 0.4 and still made a 91 s screen recording a
+  // 205 MB proxy of a 7.5 MB source; P-frames cost next to nothing on static
+  // content, and VBR undershoots the budget there anyway
+  const bitrate = Math.min(Math.round(pw * ph * framerate * 0.2), Math.round(maxBr * 0.9));
   return { codec: 'avc1.4d00' + lvl, width: pw, height: ph, bitrate, framerate, latencyMode: 'quality' };
 }
 
@@ -51,9 +53,19 @@ function mkEncoder(Mux, pw, ph, framerate, audio) {
     video: { codec: 'avc', width: pw, height: ph, frameRate: framerate },
     ...(audio ? { audio: { codec: 'aac', sampleRate: audio.sampleRate, numberOfChannels: audio.channels } } : {}),
     fastStart: 'in-memory',
+    // the first frame isn't always at 0: B-frame sources with an edit list
+    // (Screenity/Mediabunny, phones) decode to cts 0.033 since mp4box ignores
+    // the elst, and <video> capture can miss frame 0. 'strict' rejected every
+    // chunk — so each tier ran a full pass, then failed at finalize.
+    firstTimestampBehavior: 'offset',
   });
   const state = { err: null };
-  const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
+  // a muxer throw inside the output callback is otherwise an uncaught page
+  // error the decode loop never sees — record it so the pass stops right away
+  const encoder = new VideoEncoder({
+    output: (c, m) => { try { muxer.addVideoChunk(c, m); } catch (e) { state.err = state.err || e; } },
+    error: (e) => { state.err = e; },
+  });
   encoder.configure(encoderConfig(pw, ph, framerate));
   return { muxer, encoder, state };
 }
@@ -91,7 +103,7 @@ async function sourceAudio(file) {
 // picture and no sound still beats no proxy.
 async function encodeProxyAudio(muxer, a) {
   let err = null;
-  const enc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => { err = e; } });
+  const enc = new AudioEncoder({ output: (c, m) => { try { muxer.addAudioChunk(c, m); } catch (e) { err = err || e; } }, error: (e) => { err = e; } });
   enc.configure({ codec: 'mp4a.40.2', sampleRate: a.sampleRate, numberOfChannels: a.channels, bitrate: 128000 });
   const chans = [...Array(a.channels)].map((_, i) => a.buf.getChannelData(Math.min(i, a.buf.numberOfChannels - 1)));
   const total = a.buf.length, BLOCK = Math.round(a.sampleRate / 5);
@@ -110,7 +122,7 @@ async function encodeProxyAudio(muxer, a) {
   if (err) throw err;
 }
 
-// Background-safe analysis of an all-intra H.264 proxy: demux + WebCodecs
+// Background-safe analysis of a short-GOP H.264 proxy: demux + WebCodecs
 // decode of N evenly spaced frames → filmstrip sprite, poster thumb, dims and
 // duration. The <video>-based capture paths (probe/makeStrip) need a VISIBLE
 // tab to present frames — in a hidden tab they yield black or time out. This
@@ -125,7 +137,11 @@ export async function analyzeProxy(blob, { frames = 10, fw = 320, thumbW = 640 }
   const sup = await VideoDecoder.isConfigSupported({ codec: dem.codec, description: dem.description }).catch(() => ({ supported: false }));
   if (!sup.supported) return out;
   const N = Math.min(frames, dem.samples.length);
-  const picks = [...Array(N)].map((_, i) => Math.min(dem.samples.length - 1, Math.floor((i + 0.5) / N * dem.samples.length)));
+  // each pick snaps back to its GOP's keyframe so it decodes on its own (an
+  // all-intra proxy from an older build maps every pick to itself)
+  const keys = dem.samples.reduce((a, s, i) => (s.is_sync && a.push(i), a), []);
+  const keyAtOrBefore = (i) => { let k = keys[0] ?? 0; for (const x of keys) { if (x > i) break; k = x; } return k; };
+  const picks = [...Array(N)].map((_, i) => keyAtOrBefore(Math.min(dem.samples.length - 1, Math.floor((i + 0.5) / N * dem.samples.length))));
   const fh = Math.max(2, Math.round(fw * out.height / out.width));
   const stripCan = new OffscreenCanvas(fw * N, fh);
   const scx = stripCan.getContext('2d');
@@ -144,7 +160,7 @@ export async function analyzeProxy(blob, { frames = 10, fw = 320, thumbW = 640 }
     error: (e) => { err = e; },
   });
   dec.configure({ codec: dem.codec, description: dem.description });
-  // all-intra proxy: every sample is a key frame, so sparse picks decode clean
+  // keyframe picks only, so the sparse decode is clean
   for (const i of picks) dec.decode(toChunk(dem.samples[i], dem.timescale));
   await dec.flush().catch((e) => { err = err || e; });
   try { dec.close(); } catch {}
@@ -232,7 +248,8 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
   const rot = dem.rotation || 0;
   const dispW = (rot === 90 || rot === 270) ? height : width;
   const dispH = (rot === 90 || rot === 270) ? width : height;
-  const ph = even(targetH), pw = even(dispW * (ph / dispH));
+  // never upscale: a 786-line screen capture gains nothing from a 1080 proxy
+  const ph = even(Math.min(targetH, dispH)), pw = even(dispW * (ph / dispH));
   // decoded up front: the muxer needs the audio track declared at construction
   await checkEncoder(pw, ph, framerate);
   const audio = file ? await sourceAudio(file) : null;
@@ -240,7 +257,7 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
 
   const canvas = new OffscreenCanvas(pw, ph);
   const cx = canvas.getContext('2d');
-  const total = samples.length; let done = 0;
+  const total = samples.length; let done = 0, nEnc = 0;
   let decErr = null;
 
   const drawRotated = (frame) => {
@@ -258,7 +275,7 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
       try {
         drawRotated(frame);
         const vf = new VideoFrame(canvas, { timestamp: frame.timestamp });
-        encoder.encode(vf, { keyFrame: true });
+        encoder.encode(vf, { keyFrame: nEnc++ % PROXY_GOP === 0 });
         vf.close();
       } catch (e) { decErr = e; }
       frame.close();
@@ -310,7 +327,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
     await withTO(once(v, 'loadedmetadata'), 15000, 'metadata load timed out');
     const W0 = v.videoWidth, H0 = v.videoHeight, dur = v.duration || 0;
     if (!W0 || !H0) throw new Error('the browser could not decode this file (unsupported codec/container)');
-    const ph = even(targetH), pw = even(W0 * (ph / H0));
+    const ph = even(Math.min(targetH, H0)), pw = even(W0 * (ph / H0));
     const fr = Math.min(60, Math.max(1, Math.round(fps)));
     await checkEncoder(pw, ph, fr);
     const audio = await sourceAudio(file);
@@ -320,7 +337,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
 
     if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
       v.playbackRate = 2;                 // capture faster than real time
-      let last = -1;
+      let last = -1, nEnc = 0;
       await new Promise((resolve, reject) => {
         let lastT = -1, lastAdvance = performance.now();
         const wd = setInterval(() => {
@@ -337,7 +354,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
             cx.drawImage(v, 0, 0, pw, ph);
             const ts = Math.max(last + 1, Math.round((meta.mediaTime || v.currentTime) * 1e6)); last = ts;
             const vf = new VideoFrame(canvas, { timestamp: ts, duration: Math.round(1e6 / fr) });
-            encoder.encode(vf, { keyFrame: true }); vf.close();
+            encoder.encode(vf, { keyFrame: nEnc++ % PROXY_GOP === 0 }); vf.close();
           } catch { /* skip a bad frame */ }
           if (onProgress && dur) onProgress(Math.min(0.99, (meta.mediaTime || v.currentTime) / dur));
           if (v.ended || (dur && v.currentTime >= dur - 0.05)) { done(resolve); return; }
@@ -354,7 +371,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
         await withTO(once(v, 'seeked'), 8000, 'seek timed out');
         cx.drawImage(v, 0, 0, pw, ph);
         const vf = new VideoFrame(canvas, { timestamp: Math.round((f / fr) * 1e6), duration: Math.round(1e6 / fr) });
-        encoder.encode(vf, { keyFrame: true }); vf.close();
+        encoder.encode(vf, { keyFrame: f % PROXY_GOP === 0 }); vf.close();
         if (onProgress && f % 4 === 0) onProgress(f / total);
       }
     }

@@ -14,6 +14,11 @@ let engine = null;
 let caps = { decode: false, encode: false, hevc: false };
 const proxyQueue = [];
 let proxyBusy = false;
+// clips finished in the current batch. Kept across runQueue() calls: import
+// queues each clip only once its probe is done, so the queue runs dry between
+// clips — resetting here made the sidebar bar run 0→100% once per clip.
+let qDone = 0;
+const stillQueued = (except) => state.media.filter((x) => x !== except && !x.removed && x.proxyStatus === 'queued').length;
 const cards = new Map();       // mediaId -> grid card element (incremental updates)
 const freshSeen = new Set();   // media whose "proxy ready" pop has already played
 let binFilter = null;          // active folder-bin filter (null = all)
@@ -290,20 +295,21 @@ async function runQueue() {
     const targetH = parseInt(el('proxyH').value, 10) || 720;
     // the sidebar bar shows the whole batch (clips done + this clip's share);
     // each card shows its own clip
-    let qDone = 0, first = true;
+    let first = true, m = null;
+    // queued-but-still-probing clips count too, so the total is the whole import
     const setTotal = (p) => {
-      const total = qDone + 1 + proxyQueue.length;
+      const total = qDone + 1 + stillQueued(m);
       prog.firstElementChild.style.width = ((qDone + p) / total * 100).toFixed(1) + '%';
     };
     while (proxyQueue.length) {
       if (!first) qDone++;   // the previous clip finished (or was skipped)
       first = false;
-      const m = proxyQueue.shift();
+      m = proxyQueue.shift();
       if (!m || !m.file || m.removed) { if (m) m.proxyStatus = m.file ? m.proxyStatus : 'unlinked'; continue; }
       const key = proxyKey(m.file, targetH);
       // status FIRST so the UI reflects progress even if the OPFS lookup is slow
       m.proxyStatus = 'building';
-      el('proxyStat').textContent = `building ${qDone + 1}/${qDone + 1 + proxyQueue.length}`;
+      el('proxyStat').textContent = `building ${qDone + 1}/${qDone + 1 + stillQueued(m)}`;
       el('proxyStat').title = m.name;
       prog.classList.remove('hidden'); setTotal(0); updateCard(m);
       try {
@@ -373,10 +379,11 @@ async function runQueue() {
       }
       updateCard(m);
     }
+    if (!first) qDone++;   // the last clip of this run
   } finally {
     proxyBusy = false;
-    prog.classList.add('hidden');
-    el('proxyStat').textContent = 'idle';
+    // more clips of the batch are still probing — keep the bar and the count
+    if (!stillQueued()) { qDone = 0; prog.classList.add('hidden'); el('proxyStat').textContent = 'idle'; }
     ffUI();
     updateCacheStat();
   }
@@ -970,7 +977,7 @@ async function adoptHandleFile(m) {
 
 // whether the auto-proxy setting wants a proxy for this clip (after probing)
 function autoProxyFor(m) {
-  const mode = el('autoProxy')?.value || 'all';
+  const mode = el('autoProxy')?.value || 'unsupported';
   if (mode === 'all') return true;
   if (mode === 'unsupported') return !m.playable || isMcraw(m.name);
   return false;

@@ -90,7 +90,12 @@ export async function getFFmpeg(onStatus) {
   try { return await _loading; } catch (e) { _loading = null; throw e; }
 }
 
-// Transcode any file to a downscaled, all-intra H.264 MP4 (a proxy). 10-bit is
+// keyframe interval of every editing proxy (all tiers). 10 keeps a random seek
+// at ≤10 decodes — a few ms at proxy size — while P-frames make static screen
+// content nearly free; the frame server walks forward from the keyframe.
+export const PROXY_GOP = 10;
+
+// Transcode any file to a downscaled, short-GOP H.264 MP4 (a proxy). 10-bit is
 // converted to 8-bit yuv420p; the log signal is preserved so the Color tab's
 // Log->Rec.709 transform/LUT still applies.
 let _jobs = 0;   // conversions since the current core was loaded
@@ -229,9 +234,12 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP,
       '-i', inPath,
       ...(opts.dur ? ['-t', String(opts.dur)] : []),
       '-filter_threads', '1',
-      '-vf', `scale=-2:${Math.round(targetH / 2) * 2}:flags=${opts.crf ? 'bicubic' : 'fast_bilinear'},format=yuv420p`,
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(opts.crf ?? 23), '-g', String(opts.gop ?? 1),
-      // all-intra needs no lookahead — dropping it saves per-thread buffers
+      // a proxy is capped at the source height (never upscale a small clip);
+      // an export conform keeps the exact delivery height it asked for
+      '-vf', `scale=-2:${opts.crf ? Math.round(targetH / 2) * 2 : `'trunc(min(${Math.round(targetH / 2) * 2},ih)/2)*2'`}:flags=${opts.crf ? 'bicubic' : 'fast_bilinear'},format=yuv420p`,
+      // proxies: a keyframe every PROXY_GOP frames, like the WebCodecs tiers
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(opts.crf ?? 23), '-g', String(opts.gop ?? PROXY_GOP),
+      // short GOP, no B-frames: no lookahead needed — dropping it saves per-thread buffers
       '-x264-params', 'rc-lookahead=0:sync-lookahead=0',
       '-threads', String(encThreads),
       // The proxy carries the audio: playback prefers the proxy over the source
