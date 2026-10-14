@@ -43,11 +43,17 @@ export async function initMedia(eng) {
     if (files.length) importFiles(files);
   });
 
-  // manual proxy generation — surfaces when auto-generate is off. "Missing"
-  // queues only clips without a proxy; "All" force-rebuilds everything linked.
+  // auto-proxy mode: "all", "unsupported" (only what the browser can't play
+  // natively — playable originals are used directly until a proxy exists), or "off"
+  try { const v = localStorage.getItem('eddit.autoProxy'); if (v) el('autoProxy').value = v; } catch {}
+  // manual proxy generation — surfaces unless every clip is auto-proxied.
+  // "Missing" queues only clips without a proxy; "All" force-rebuilds everything linked.
   const gpRow = el('genProxyRow');
-  const syncGenRow = () => gpRow?.classList.toggle('hidden', el('autoProxy').checked);
-  el('autoProxy').addEventListener('change', syncGenRow);
+  const syncGenRow = () => gpRow?.classList.toggle('hidden', el('autoProxy').value === 'all');
+  el('autoProxy').addEventListener('change', () => {
+    try { localStorage.setItem('eddit.autoProxy', el('autoProxy').value); } catch {}
+    syncGenRow();
+  });
   syncGenRow();
   if (el('genProxyBtn')) el('genProxyBtn').onclick = () => {
     const all = el('genProxyMode').value === 'all';
@@ -162,7 +168,7 @@ async function importFiles(files, { explicit = true } = {}) {
       width: 0, height: 0, duration: 0, thumb: null, playable: false,
       kind: audioOnly ? 'audio' : 'video',
       // audio has no picture to proxy — the mixer decodes the original
-      proxyReady: false, proxyUrl: null, proxyStatus: (!audioOnly && el('autoProxy').checked) ? 'queued' : '',
+      proxyReady: false, proxyUrl: null, proxyStatus: (!audioOnly && el('autoProxy').value === 'all') ? 'queued' : '',
     });
     work.push({ m, file, relink: false });
   }
@@ -199,7 +205,7 @@ async function importFiles(files, { explicit = true } = {}) {
       updateCard(m);
       bus.emit('media:changed');
       if (relink) toast('Re-linked ' + file.name);
-      if (el('autoProxy').checked && !m.proxyReady) queueProxy(m, false);
+      if (autoProxyFor(m) && !m.proxyReady) queueProxy(m, false);
       continue;
     }
     try {
@@ -225,7 +231,8 @@ async function importFiles(files, { explicit = true } = {}) {
     updateCard(m);
     bus.emit('media:changed');
     if (relink) toast('Re-linked ' + file.name);
-    if (el('autoProxy').checked) { if (!m.proxyReady) queueProxy(m, false); }
+    if (autoProxyFor(m)) { if (!m.proxyReady) queueProxy(m, false); }
+    else if (m.proxyStatus === 'queued') { m.proxyStatus = ''; updateCard(m); }
     else ensureStrip(m);   // no proxy coming — build the hover strip off the original
   }
 }
@@ -940,10 +947,22 @@ function thumbIsBlack(dataUrl) {
 // take the File back from a stored handle; resume the proxy build if needed
 async function adoptHandleFile(m) {
   const f = await m.handle.getFile();
-  m.file = f; m.url = URL.createObjectURL(f); m.playable = true;
+  m.file = f;
+  // playable isn't persisted — probe again rather than assume, so an HEVC
+  // original isn't treated as natively decodable (by export or the proxy mode)
+  const meta = await probe(f).catch(() => null);
+  m.url = meta?.url || URL.createObjectURL(f); m.playable = meta ? meta.playable : true;
   if (m.proxyReady) return;
   m.proxyStatus = null;
-  if (el('autoProxy')?.checked) queueProxy(m, false); else updateCard(m);
+  if (autoProxyFor(m)) queueProxy(m, false); else updateCard(m);
+}
+
+// whether the auto-proxy setting wants a proxy for this clip (after probing)
+function autoProxyFor(m) {
+  const mode = el('autoProxy')?.value || 'all';
+  if (mode === 'all') return true;
+  if (mode === 'unsupported') return !m.playable || isMcraw(m.name);
+  return false;
 }
 
 // gesture path: 'prompt' permission needs a user click — used by the card click

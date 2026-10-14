@@ -134,7 +134,12 @@
       </div>
       <div class="glass card">
         <div class="row" style="justify-content:space-between"><h3 style="margin:0">Proxy</h3><span class="statline" id="proxyStat">idle</span></div>
-        <label class="row" style="gap:7px;margin-top:8px;color:var(--text-secondary)"><input type="checkbox" id="autoProxy" checked>Auto-generate on import</label>
+        <label style="margin-top:8px">Auto-generate on import</label>
+        <select id="autoProxy">
+          <option value="all">All clips</option>
+          <option value="unsupported">Unsupported formats only</option>
+          <option value="off">Off</option>
+        </select>
         <div class="row hidden" id="genProxyRow" style="margin-top:8px;gap:6px">
           <button class="accent" id="genProxyBtn" style="flex:1;padding:6px 10px;font-size:12px">Generate proxies</button>
           <select id="genProxyMode" style="width:86px">
