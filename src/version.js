@@ -3,9 +3,16 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.4';
+export const APP_VERSION = '0.9.5';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.5', date: '2026-10-14', title: 'Faster conversion of camera footage',
+    items: [
+      'Clips your browser can’t play natively (like 10-bit H.265 C-Log) convert up to about twice as fast, and big camera files no longer need to be loaded fully into memory first.',
+      'Choose which clips get proxies on import: all clips, only formats your browser can’t play, or none.',
+    ],
+  },
   {
     v: '0.9.4', date: '2026-08-01', title: 'Smooth looping and a roomier timeline toolbar',
     items: [
