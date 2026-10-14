@@ -1,10 +1,12 @@
 // Toolbox tab (Edit left sidebar): generators that drop clips on the timeline,
-// and one-tap grade presets ("effects") for the selected clip. A foundation to
-// grow blur / masks / transition-library / audio-FX into.
-import { state, bus, addTitle, addSolid, defaultGrade } from '../state.js';
+// and the FX modules (src/fx) — dragged onto a clip, which then carries the
+// effect in its FX stack (Edit inspector + Color → FX). A tap only hints:
+// effects never land on a clip implicitly.
+import { state, bus, addTitle, addSolid } from '../state.js';
 import { el, toast } from '../util.js';
 import { render as tlRender, selectClip, renderInspector } from '../timeline/timeline.js';
 import { syncUI as colorSync } from './color.js';
+import { FX, fxDef, addFx } from '../fx/index.js';
 
 let engine;
 const ph = () => Math.max(0, state.playhead || 0);
@@ -12,23 +14,6 @@ const ph = () => Math.max(0, state.playhead || 0);
 const GENERATORS = [
   { label: 'Text', icon: 'T', run: () => addTitle(ph()) },
   { label: 'Solid', icon: '■', run: () => addSolid('#0e0e12', ph()) },
-];
-
-const EFFECTS = [
-  { label: 'B&W', apply: (g) => { g.saturation = 0; } },
-  { label: 'Warm', apply: (g) => { g.temp = 0.28; } },
-  { label: 'Cool', apply: (g) => { g.temp = -0.28; } },
-  { label: 'Punch', apply: (g) => { g.contrast = 0.28; g.saturation = 1.25; } },
-  { label: 'Cinematic', apply: (g) => { g.contrast = 0.16; g.saturation = 0.92; g.temp = 0.08; g.lift = [0.02, 0.02, 0.05]; } },
-  { label: 'Fade', apply: (g) => { g.contrast = -0.18; g.saturation = 0.85; g.lift = [0.06, 0.06, 0.07]; } },
-  // vignette / glow are shader FX — fine-tune them under Color → FX
-  { label: 'Vignette', apply: (g) => { g.vignette = 0.55; g.vignetteSize = 0.7; g.vignetteFeather = 0.5; } },
-  { label: 'Glow', apply: (g) => { g.glow = 0.5; g.glowThreshold = 0.6; g.glowRadius = 0.5; } },
-  { label: 'Dream', apply: (g) => { g.glow = 0.7; g.glowThreshold = 0.45; g.glowRadius = 0.7; g.contrast = -0.08; g.saturation = 1.08; } },
-  { label: 'Noir', apply: (g) => { g.saturation = 0; g.contrast = 0.3; g.vignette = 0.7; g.vignetteSize = 0.55; } },
-  { label: 'Distort', apply: (g) => { g.distort = 0.4; g.distortScale = 0.5; g.distortSpeed = 0.5; } },
-  { label: 'Wiggle', apply: (g) => { g.wiggle = 0.3; g.wiggleFreq = 0.5; } },
-  { label: 'Reset', apply: (g) => { Object.assign(g, defaultGrade()); } },
 ];
 
 export function initFx(eng) {
@@ -41,11 +26,12 @@ export function initFx(eng) {
     b.onclick = () => { const c = gen.run(); tlRender(); selectClip(c.id); renderInspector(); engine.seek(state.playhead); };
     gWrap.appendChild(b);
   }
-  for (const fx of EFFECTS) {
+  for (const d of FX) {
     const b = document.createElement('button');
-    b.className = 'fx-btn';
-    b.textContent = fx.label;
-    b.onclick = () => applyFx(fx);
+    b.className = 'fx-btn fx-drag';
+    b.innerHTML = `<span class="fx-ic">${d.icon}</span>${d.label}`;
+    b.title = `Drag ${d.label} onto a clip`;
+    b.addEventListener('pointerdown', (e) => fxDrag(d.id, e, b));
     fWrap.appendChild(b);
   }
   // Media / Toolbox sub-tab switch
@@ -55,10 +41,54 @@ export function initFx(eng) {
   });
 }
 
-function applyFx(fx) {
-  const id = state.selectedClipId;
-  if (!id || !state.grades[id]) { toast('Select a clip first', true); return; }
-  fx.apply(state.grades[id]);
-  engine.markGradeDirty(); bus.emit('timeline:changed'); colorSync();
-  toast('Applied ' + fx.label);
+// the picture clip under the pointer (audio lanes can't take an effect)
+const clipAt = (x, y) => {
+  const n = document.elementFromPoint(x, y);
+  const c = n && n.closest ? n.closest('.tl-clip') : null;
+  return c && !c.classList.contains('audio') && state.grades[c.dataset.id] ? c : null;
+};
+
+// pointer drag from the toolbox onto a timeline clip (mouse + touch, like the
+// media pool's drag)
+function fxDrag(id, e, btn) {
+  if (e.button != null && e.button !== 0) return;
+  const x0 = e.clientX, y0 = e.clientY;
+  let dragging = false, ghost = null, over = null;
+  const hover = (c) => { if (over === c) return; over?.classList.remove('fx-drop'); over = c; over?.classList.add('fx-drop'); };
+  const cleanup = () => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cleanup);
+    btn.classList.remove('dragging'); ghost?.remove(); hover(null);
+  };
+  const move = (ev) => {
+    if (!dragging) {
+      const dx = ev.clientX - x0, dy = ev.clientY - y0;
+      if (Math.hypot(dx, dy) <= 6) return;
+      // touch: a mostly-vertical first move scrolls the toolbox instead
+      if (ev.pointerType === 'touch' && Math.abs(dy) > Math.abs(dx)) { cleanup(); return; }
+      dragging = true; btn.classList.add('dragging');
+      ghost = document.createElement('div'); ghost.className = 'drag-ghost'; ghost.textContent = fxDef(id).label;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px';
+    hover(clipAt(ev.clientX, ev.clientY));
+  };
+  const up = (ev) => {
+    const target = dragging ? clipAt(ev.clientX, ev.clientY) : null;
+    const wasDrag = dragging;
+    cleanup();
+    if (!wasDrag) { toast(`Drag ${fxDef(id).label} onto a clip on the timeline`); return; }
+    if (target) applyTo(target.dataset.id, id);
+  };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cleanup);
+}
+
+function applyTo(clipId, id) {
+  const g = state.grades[clipId];
+  const label = fxDef(id).label;
+  if (!addFx(g, id)) { toast(`${label} is already on this clip`, true); selectClip(clipId); return; }
+  engine.markGradeDirty();
+  bus.emit('timeline:changed');
+  selectClip(clipId);          // inspector opens on the clip, FX section included
+  colorSync();
+  toast('Added ' + label);
 }

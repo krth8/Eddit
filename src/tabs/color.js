@@ -8,17 +8,17 @@ import { LUT_CATEGORIES, findLut, addUserLut, USER_LUTS } from '../luts.js';
 import { kvGet, kvSet } from '../store.js';
 import { updateFills, TOUCH_GAIN } from '../slider.js';
 import { toggleSheet } from '../layout.js';
+import { FX, fxOn } from '../fx/index.js';
+import { renderFxStack } from '../fx/panel.js';
 
 let engine = null;
 let curveCh = 'rgb';
 // grade keys driven by an a_<key> range input (Adjust + FX panels)
 const SLIDER_KEYS = ['exposure', 'contrast', 'saturation', 'temp', 'tint', 'pivot',
   'toneSh', 'toneHi', 'toneMap',
-  'rawExposure', 'rawTemp', 'rawTint',
-  'vignette', 'vignetteSize', 'vignetteFeather', 'glow', 'glowThreshold', 'glowRadius',
-  'distort', 'distortScale', 'distortSpeed', 'wiggle', 'wiggleFreq'];
+  'rawExposure', 'rawTemp', 'rawTint'];   // FX params live in the src/fx modules
 // develop settings live with the SOURCE clip — they never travel with
-// creative grades (copy/paste/apply-to-all/presets)
+// creative grades (copy/paste/apply-to-all)
 const RAW_KEYS = ['rawExposure', 'rawTemp', 'rawTint'];
 const pickRaw = (g) => { const o = {}; for (const k of RAW_KEYS) o[k] = g?.[k] || 0; return o; };
 let gradeClipboard = null;   // copied grade (survives clip switches, not reloads)
@@ -47,12 +47,6 @@ export function initColor(eng) {
   // secondary mask (qualifier + window)
   initMask();
 
-  // FX accordion — headers fold each effect; active effects auto-open
-  $$('#csFx .card[data-fx]').forEach((card) => {
-    card.classList.add('closed');
-    card.querySelector('h3').onclick = () => card.classList.toggle('closed');
-  });
-
   // input transform
   el('inputTransform').onchange = (e) => { const g = grade(); if (g) { g.inputTransform = e.target.value; commit(); } };
 
@@ -63,7 +57,7 @@ export function initColor(eng) {
     syncUI(true); commit();
   };
 
-  // adjust + fx sliders
+  // adjust sliders
   for (const key of SLIDER_KEYS) {
     const inp = el('a_' + key);
     inp.oninput = () => {
@@ -112,17 +106,14 @@ export function initColor(eng) {
     } catch (err) { toast('LUT error: ' + err.message, true); }
     e.target.value = '';
   };
-  // restore persisted user LUTs + grade presets
+  // restore persisted user LUTs
   (async () => {
     try {
       const saved = (await kvGet('userLuts')) || [];
       for (const u of saved) if (u?.name && u?.lut?.size) addUserLut(u.name, u.lut);
       if (saved.length) { bus.emit('luts:changed'); renderLutList(); }
     } catch {}
-    try { gradePresets = (await kvGet('gradePresets')) || []; } catch {}
-    renderPresets();
   })();
-  if (el('presetSave')) el('presetSave').onclick = savePreset;
 
   el('cResetGrade').onclick = () => {
     if (!state.selectedClipId) return;
@@ -283,7 +274,7 @@ function sectionActivity(g) {
     hsl: [...(g.hsl || []), ...(g.hslHue || []), ...(g.hslLum || [])].some((v) => Math.abs(v) > 1e-4),
     mask: !!(g.maskQ?.on || (g.maskW?.shape && g.maskW.shape !== 'off')),
     luts: !!g.lut,
-    fx: ['vignette', 'glow', 'distort', 'wiggle'].some((k) => (g[k] || 0) > 1e-4),
+    fx: FX.some((d) => fxOn(g, d.id)),
   };
 }
 function updateSubDots() {
@@ -410,48 +401,9 @@ function drawCurve() {
   for (const p of pts) { cx.beginPath(); cx.arc(p.x * W, (1 - p.y) * H, 4 * sc, 0, 7); cx.fill(); }
 }
 
-// ---- user LUT persistence + grade presets ----
+// ---- user LUT persistence ----
 function persistUserLuts() {
   kvSet('userLuts', USER_LUTS.luts.map((l) => { try { return { name: l.name, lut: l.get() }; } catch { return null; } }).filter(Boolean)).catch(() => {});
-}
-
-let gradePresets = [];
-function savePreset() {
-  const g = grade(); if (!g) return toast('Select a clip first', true);
-  const name = (prompt('Preset name', 'My look') || '').trim();
-  if (!name) return;
-  const snap = structuredClone({ ...g, lut: null, rawExposure: 0, rawTemp: 0, rawTint: 0 });   // lutName re-resolves on apply
-  const i = gradePresets.findIndex((p) => p.name === name);
-  if (i >= 0) gradePresets[i] = { name, grade: snap }; else gradePresets.push({ name, grade: snap });
-  kvSet('gradePresets', gradePresets).catch(() => {});
-  renderPresets();
-  toast('Preset saved: ' + name);
-}
-function applyPreset(p) {
-  if (!state.selectedClipId || !grade()) return toast('Select a clip first', true);
-  const ng = { ...structuredClone(p.grade), ...pickRaw(grade()) };
-  if (ng.lutName) { const l = findLut(ng.lutName); if (l) { try { ng.lut = l.get(); } catch {} } }
-  state.grades[state.selectedClipId] = ng;
-  syncUI(); commit();
-  toast(`Preset "${p.name}" applied`);
-}
-function renderPresets() {
-  const box = el('presetList'); if (!box) return;
-  box.innerHTML = '';
-  if (!gradePresets.length) { box.innerHTML = '<div class="statline">Save a grade you like and apply it to any clip.</div>'; return; }
-  for (const p of gradePresets) {
-    const row = document.createElement('div');
-    row.className = 'lut-item';
-    row.innerHTML = `<span class="lsw" style="background:linear-gradient(90deg,#5fd598,#2ba7d8)"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${p.name}</span><span class="preset-del" title="Delete preset">✕</span>`;
-    row.onclick = () => applyPreset(p);
-    row.querySelector('.preset-del').onclick = (e) => {
-      e.stopPropagation();
-      gradePresets = gradePresets.filter((x) => x !== p);
-      kvSet('gradePresets', gradePresets).catch(() => {});
-      renderPresets();
-    };
-    box.appendChild(row);
-  }
 }
 
 // ---- categorised LUT browser (Resolve-style folders) ----
@@ -689,7 +641,7 @@ export function syncUI(force) {
   el('inputTransform').value = g.inputTransform;
   const dflt = defaultGrade();
   for (const key of SLIDER_KEYS) {
-    const v = g[key] ?? dflt[key];   // pre-FX grades lack the vignette/glow keys
+    const v = g[key] ?? dflt[key];
     const inp = el('a_' + key); inp.value = v; inp.nextElementSibling.textContent = Number(v).toFixed(2);
   }
   ensureWheels(g);
@@ -701,12 +653,9 @@ export function syncUI(force) {
   el('lutMix').value = g.lutMix;
   syncHsl();
   syncMask();
-  // FX accordion: open + dot the effects this clip actually uses
-  $$('#csFx .card[data-fx]').forEach((card) => {
-    const on = Math.abs(g[card.dataset.fx] || 0) > 1e-4;
-    card.classList.toggle('closed', !on);
-    card.classList.toggle('hasval', on);
-  });
+  // FX: only the effects on this clip, plus the add menu (Color's toolbox)
+  renderFxStack(el('csFxStack'), g, (structural) => { commit(); if (structural) bus.emit('fx:changed'); },
+    { addMenu: true, emptyText: 'No effects on this clip. Add one here, or drag one from the Edit toolbox onto the clip.' });
   updateFills(document.getElementById('color'));
   drawCurve(); renderLutList(); renderStrip();
 }

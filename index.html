@@ -232,7 +232,8 @@
         <h3 style="margin:0 0 4px">Generators</h3>
                 <div class="fx-grid" id="fxGenerators"></div>
         <h3 style="margin:16px 0 4px">Effects</h3>
-                <div class="fx-grid" id="fxEffects"></div>
+        <p class="statline" style="margin:0 0 8px">Drag an effect onto a clip on the timeline</p>
+        <div class="fx-grid" id="fxEffects"></div>
       </div>
     </aside>
     <div class="stage-main">
@@ -484,36 +485,12 @@
           <button class="ghost" id="loadLut" style="width:100%;margin-top:8px"><svg class="ic"><use href="#i-folder"/></svg>Load .cube from disk…</button>
           <input type="file" id="lutFile" accept=".cube" hidden>
         </div>
-        <div class="glass card">
-          <div class="row" style="justify-content:space-between"><h3 style="margin:0">My presets</h3>
-            <button class="ghost" id="presetSave" style="padding:4px 10px;font-size:11px">+ Save grade</button></div>
-          <div class="lut-list" id="presetList"></div>
-        </div>
       </div>
 
       <div class="color-tools hidden" id="csFx" data-cs="fx">
-        <div class="glass card" data-fx="vignette">
-          <h3>Vignette</h3>
-          <div class="slider-row"><label>Amount</label><input type="range" id="a_vignette" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
-          <div class="slider-row"><label>Size</label><input type="range" id="a_vignetteSize" min="0.2" max="1.2" step="0.01" value="0.7" data-default="0.7"><span class="val">0.70</span></div>
-          <div class="slider-row"><label>Feather</label><input type="range" id="a_vignetteFeather" min="0.05" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
-        </div>
-        <div class="glass card" data-fx="glow">
-          <h3>Glow</h3>
-                    <div class="slider-row"><label>Amount</label><input type="range" id="a_glow" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
-          <div class="slider-row"><label>Threshold</label><input type="range" id="a_glowThreshold" min="0" max="1" step="0.01" value="0.6" data-default="0.6"><span class="val">0.60</span></div>
-          <div class="slider-row"><label>Radius</label><input type="range" id="a_glowRadius" min="0.05" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
-        </div>
-        <div class="glass card" data-fx="distort">
-          <h3>Distort</h3>
-                    <div class="slider-row"><label>Amount</label><input type="range" id="a_distort" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
-          <div class="slider-row"><label>Scale</label><input type="range" id="a_distortScale" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
-          <div class="slider-row"><label>Speed</label><input type="range" id="a_distortSpeed" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
-        </div>
-        <div class="glass card" data-fx="wiggle">
-          <h3>Wiggle</h3>
-                    <div class="slider-row"><label>Amount</label><input type="range" id="a_wiggle" min="0" max="1" step="0.01" value="0" data-default="0"><span class="val">0.00</span></div>
-          <div class="slider-row"><label>Speed</label><input type="range" id="a_wiggleFreq" min="0" max="1" step="0.01" value="0.5" data-default="0.5"><span class="val">0.50</span></div>
+        <div class="glass card">
+          <h3>Effects</h3>
+          <div id="csFxStack" class="fx-stack"></div>
         </div>
       </div>
     </aside>
@@ -556,6 +533,6 @@
 
 <script src="./vendor/mp4box.all.min.js"></script>
 <script src="./vendor/mp4-muxer.min.js"></script>
-<script type="module" src="./src/main.js?v=0.9.7"></script>
+<script type="module" src="./src/main.js?v=0.9.8"></script>
 </body>
 </html>

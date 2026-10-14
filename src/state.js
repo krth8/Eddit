@@ -1,6 +1,7 @@
 // Central app state + change bus. Multi-track timeline model.
 import { makeBus, uid } from './util.js';
 import { defaultTitle } from './timeline/title.js';
+import { FX, fxOn } from './fx/index.js';
 
 export const bus = makeBus();
 
@@ -34,6 +35,8 @@ export function defaultGrade() {
     // distort = turbulence displace; wiggle = smooth position jitter
     distort: 0, distortScale: 0.5, distortSpeed: 0.5,
     wiggle: 0, wiggleFreq: 0.5,
+    // effects dropped on this clip (src/fx modules) — only these render
+    fx: [],
     // secondary mask: qualifier (picked colour ± range) × window shape.
     // The grade applies only inside the mask; maskShow previews the matte.
     maskQ: { on: 0, h: 0, s: 0, y: 0, range: 0.25, soft: 0.12 },
@@ -51,9 +54,8 @@ export function isGraded(g) {
   for (const k of ['toneMap', 'toneSh', 'toneHi']) if (Math.abs((g[k] || 0) - d[k]) > 1e-4) return true;
   for (const k of ['lift', 'gamma', 'gain', 'offset']) if ((g[k] || []).some((v) => Math.abs(v) > 1e-4)) return true;
   if ([...(g.hsl || []), ...(g.hslHue || []), ...(g.hslLum || [])].some((v) => Math.abs(v) > 1e-4)) return true;
-  if ((g.vignette || 0) > 1e-4 || (g.glow || 0) > 1e-4) return true;
   if (g.maskQ?.on || (g.maskW?.shape && g.maskW.shape !== 'off')) return true;
-  if ((g.distort || 0) > 1e-4 || (g.wiggle || 0) > 1e-4) return true;
+  if (FX.some((d) => fxOn(g, d.id))) return true;
   for (const ch of ['rgb', 'r', 'g', 'b']) {
     const c = g.curves?.[ch];
     if (c && (c.length !== 2 || c[0].x !== 0 || c[0].y !== 0 || c[1].x !== 1 || c[1].y !== 1)) return true;

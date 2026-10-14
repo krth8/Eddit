@@ -5,6 +5,7 @@
 import { identityCube } from './lut.js';
 import { curveEval } from '../util.js';
 import { GAMUT } from './logtransforms.js';
+import { fxOn } from '../fx/index.js';
 
 // row-major 3x3 -> WGSL mat3x3 constructor (column vectors)
 const m3 = (M) => `mat3x3<f32>(vec3(${M[0]}, ${M[3]}, ${M[6]}), vec3(${M[1]}, ${M[4]}, ${M[7]}), vec3(${M[2]}, ${M[5]}, ${M[8]}))`;
@@ -570,11 +571,13 @@ export class Renderer {
       f.set([q.range ?? 0.25, q.soft ?? 0.12, g.maskInvert ? 1 : 0, g.maskShow ? 1 : 0], 84);
       f.set([shapeMap[wn.shape] || 0, wn.cx ?? 0.5, wn.cy ?? 0.5, wn.feather ?? 0.2], 88);
       f.set([wn.rx ?? 0.35, wn.ry ?? 0.35, wn.angle || 0, 0], 92);
-      // fx defaults via ?? so grades saved before vignette/glow existed still work
-      f.set([g.vignette || 0, g.vignetteSize ?? 0.7, g.vignetteFeather ?? 0.5, g.glow || 0], 48);
+      // fx defaults via ?? so grades saved before vignette/glow existed still
+      // work; an amount only counts when the effect is on the clip's FX stack
+      const amt = (id) => (fxOn(g, id) ? g[id] || 0 : 0);
+      f.set([amt('vignette'), g.vignetteSize ?? 0.7, g.vignetteFeather ?? 0.5, amt('glow')], 48);
       f.set([g.glowThreshold ?? 0.6, g.glowRadius ?? 0.5, g.toneMap || 0, 0], 52);
-      f.set([g.distort || 0, g.distortScale ?? 0.5, g.distortSpeed ?? 0.5, this._time || 0], 56);
-      f.set([g.wiggle || 0, g.wiggleFreq ?? 0.5, g.toneSh || 0, g.toneHi || 0], 60);
+      f.set([amt('distort'), g.distortScale ?? 0.5, g.distortSpeed ?? 0.5, this._time || 0], 56);
+      f.set([amt('wiggle'), g.wiggleFreq ?? 0.5, g.toneSh || 0, g.toneHi || 0], 60);
     } else {
       f.set([0, 0, 1, 0.435], 0);
       f.set([0, 0, 1, 0], 4);

@@ -11,6 +11,8 @@ import { getPeaks, drawWave } from './waveform.js';
 import { toggleSheet, openSheet, isNarrow } from '../layout.js';
 import { wireHoverScrub, applyThumbStyle } from '../tabs/media.js';
 import { TITLE_FONTS, TITLE_ANIMS } from './title.js';
+import { fxStack } from '../fx/index.js';
+import { renderFxStack } from '../fx/panel.js';
 
 let engine = null;
 let pxPerSec = 40;
@@ -190,6 +192,7 @@ export function initTimeline(eng) {
   }
 
   bus.on('timeline:changed', render);
+  bus.on('fx:changed', renderInspector);   // effects added/removed in Color or by a drop
   bus.on('media:changed', renderPool);
   bus.on('thumbs:baked', renderPool);   // thumbnail-look bakes are display-only
   render(); renderPool();
@@ -802,6 +805,9 @@ export function renderInspector() {
       <div class="statline" id="tf_keyinfo" style="margin-top:4px">${c.keyframes && c.keyframes.length ? c.keyframes.length + ' keyframes — animating' : 'Static — add keyframes at the playhead to animate'}</div>
       <button class="ghost" id="tf_reset" style="width:100%;margin-top:6px">Reset transform</button>
     </details>`}
+    ${!isAudio && fxStack(state.grades[c.id]).length ? `<details class="ins-grp" open><summary>FX</summary>
+      <div id="ins_fx" class="fx-stack"></div>
+    </details>` : ''}
     ${isAudio ? '' : `<details class="ins-grp"><summary>Transition</summary>
       ${sr('Dissolve in', 'ins_transIn', 0, 2, 0.05, c.transIn || 0, (c.transIn || 0).toFixed(2) + ' s', 0)}
       <p class="statline" style="margin:6px 0 0">Cross-dissolves from the previous clip on this track.</p>
@@ -867,6 +873,12 @@ export function renderInspector() {
     }
     el('ti_bg').oninput = (e) => { c.title.bgOpacity = parseFloat(e.target.value); e.target.nextElementSibling.textContent = Math.round(c.title.bgOpacity * 100); engine.markGradeDirty(); bus.emit('timeline:changed'); };
   }
+
+  // effects on this clip — the section only exists once one was dropped on it
+  if (el('ins_fx')) renderFxStack(el('ins_fx'), state.grades[c.id], (structural) => {
+    engine.markGradeDirty(); bus.emit('timeline:changed');
+    if (structural) bus.emit('fx:changed');   // last one removed → section goes
+  });
 
   const upd = (recalc) => { bus.emit('timeline:changed'); if (recalc) engine.audio.refresh(); };
   // auto-key: once a clip has keyframes, editing a transform re-keys at the playhead

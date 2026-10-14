@@ -887,8 +887,6 @@ input[type=range]{accent-color:var(--accent)}
 :root[data-layout="narrow"][data-orient="landscape"] #cToolsBtn{display:none}
 :root[data-layout="narrow"][data-orient="landscape"][data-tab="color"] #drawerBtn{display:none}
 :root[data-layout="narrow"][data-tab="color"] #drawerBtn{display:none}
-.preset-del{opacity:.45;padding:0 5px;flex:none}
-.lut-item:hover .preset-del{opacity:1;color:var(--danger,#ff7a7a)}
 
 /* ── project settings popover (timeline ⚙) ── */
 .tl-proj{position:relative;display:flex}
@@ -913,14 +911,22 @@ input[type=range]{accent-color:var(--accent)}
 :root[data-tablet][data-layout="narrow"] .main-tabs{max-width:calc(100vw - 260px)}
 :root[data-tablet][data-layout="narrow"][data-orient="portrait"] .pv-stage{min-height:42vh}
 
-/* ── FX accordion: each effect folds to its header; carets show state ── */
-#csFx .card[data-fx] h3{cursor:pointer;display:flex;align-items:center;gap:7px;user-select:none}
-#csFx .card[data-fx] h3::after{content:"▾";font-size:10px;color:var(--text-muted);transition:transform .18s;margin-left:auto}
-#csFx .card[data-fx].closed h3::after{transform:rotate(-90deg)}
-#csFx .card[data-fx].closed > :not(h3){display:none}
-#csFx .card[data-fx].closed h3{margin-bottom:0}
-/* a non-default effect shows a dot on its header, like the sub-tabs */
-#csFx .card[data-fx].hasval h3::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);order:-1}
+/* ── FX stack (src/fx/panel.js): one module card per effect on the clip ── */
+.fx-stack{display:flex;flex-direction:column;gap:8px}
+.fx-mod{border:1px solid var(--border);border-radius:9px;padding:8px 10px 6px;background:var(--bg-elevated)}
+.fx-mod.off>.slider-row{opacity:.45}
+.fx-mod-hd{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:12.5px}
+.fx-mod-hd .fx-ic{font-size:14px}
+.fx-mod-hd b{flex:1;font-weight:600}
+.fx-on{display:flex;align-items:center;cursor:pointer}
+.fx-del{background:none;border:0;color:var(--text-muted);cursor:pointer;font-size:13px;padding:2px 4px;border-radius:5px}
+.fx-del:hover{color:var(--text);background:var(--bg-hover)}
+.fx-add>button{width:100%}
+.fx-add-menu{margin-top:8px}
+.fx-empty{margin:0}
+.fx-btn.fx-drag{cursor:grab;touch-action:pan-y}
+.fx-btn.dragging{opacity:.5}
+.tl-clip.fx-drop{box-shadow:inset 0 0 0 2px var(--accent)}
 
 /* ── narrow timeline header: drop the info line, wrap the toolbar row ── */
 :root[data-layout="narrow"] #tlInfo{display:none}

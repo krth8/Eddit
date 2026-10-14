@@ -3,9 +3,18 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.7';
+export const APP_VERSION = '0.9.8';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.8', date: '2026-10-14', title: 'Effects you drag onto clips',
+    items: [
+      'Drag an effect from the Toolbox onto a clip on the timeline — tapping no longer applies it to whatever is selected.',
+      'A clip with effects gets an FX section in its settings panel: tweak each effect, switch it off to compare, or remove it.',
+      'Color → FX shows only the effects on the current clip, and lets you add or remove effects without leaving the Color tab.',
+      'The one-tap look presets and saved grade presets are gone for now — a dedicated presets library is on the way.',
+    ],
+  },
   {
     v: '0.9.7', date: '2026-10-14', title: 'Smaller, faster proxies',
     items: [

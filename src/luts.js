@@ -37,8 +37,7 @@ function lazy(fn) { let c; return () => (c ||= fn()); }
 
 // user-loaded .cube files, registered at load and persisted in IndexedDB —
 // they appear in the LUT browser and the thumbnail-look picker like any
-// bundled conversion. (The old procedural 'Creative' pack is gone: creative
-// looks are the user's own grade presets now.)
+// bundled conversion. (The old procedural 'Creative' pack is gone.)
 export const USER_LUTS = { name: 'My LUTs', luts: [] };
 export function addUserLut(name, lut) {
   const entry = { name, swatch: 'linear-gradient(90deg,#5fd598,#8aa2ff)', get: () => lut };
