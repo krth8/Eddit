@@ -3,9 +3,16 @@
 // auto-expands when the running build is newer than the one last seen in this
 // browser. Newest entry first. 0.x = public beta, 1.0.0 = first stable.
 
-export const APP_VERSION = '0.9.5';
+export const APP_VERSION = '0.9.6';
 
 export const RELEASE_NOTES = [
+  {
+    v: '0.9.6', date: '2026-10-14', title: 'Proxies that build in one go',
+    items: [
+      'Proxy building no longer restarts over and over on 50/60 fps and 1080p clips — it picks an encoder setting your device accepts, and switches method right away if one can’t work.',
+      'The proxy bar in the sidebar now shows progress for the whole batch, with a clip counter.',
+    ],
+  },
   {
     v: '0.9.5', date: '2026-10-14', title: 'Faster conversion of camera footage',
     items: [

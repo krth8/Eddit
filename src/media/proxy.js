@@ -25,6 +25,26 @@ export async function codecSupport() {
   return out;
 }
 
+// H.264 Main at the lowest level that fits the proxy. A fixed level 4.0 broke
+// on 50/60 fps and 1080p proxies: its 20 Mbps / 245760 MB/s ceilings sit below
+// what those need, and platform encoders (Windows MF) reject the config — only
+// noticed at flush, after a full decode pass. Bitrate is capped to the level.
+function encoderConfig(pw, ph, framerate) {
+  const mbps = Math.ceil(pw / 16) * Math.ceil(ph / 16) * framerate;
+  const [lvl, maxBr] = mbps <= 245760 ? ['28', 20e6] : mbps <= 522240 ? ['2a', 50e6] : ['33', 135e6];
+  // 0.4 bits/px/frame (~11 Mbps @720p30) — all-intra needs roughly double the
+  // long-GOP budget to look clean; the cost is disk only, playback is easy
+  const bitrate = Math.min(Math.round(pw * ph * framerate * 0.4), Math.round(maxBr * 0.9));
+  return { codec: 'avc1.4d00' + lvl, width: pw, height: ph, bitrate, framerate, latencyMode: 'quality' };
+}
+
+async function checkEncoder(pw, ph, framerate) {
+  const cfg = encoderConfig(pw, ph, framerate);
+  let ok = false;
+  try { ok = (await VideoEncoder.isConfigSupported(cfg)).supported; } catch {}
+  if (!ok) throw new Error(`H.264 encoder rejects ${pw}x${ph}@${framerate} (${cfg.codec})`);
+}
+
 function mkEncoder(Mux, pw, ph, framerate, audio) {
   const muxer = new Mux.Muxer({
     target: new Mux.ArrayBufferTarget(),
@@ -34,9 +54,7 @@ function mkEncoder(Mux, pw, ph, framerate, audio) {
   });
   const state = { err: null };
   const encoder = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => { state.err = e; } });
-  // 0.4 bits/px/frame (~11 Mbps @720p30) — all-intra needs roughly double the
-  // long-GOP budget to look clean; the cost is disk only, playback is easy
-  encoder.configure({ codec: 'avc1.4d0028', width: pw, height: ph, bitrate: Math.round(pw * ph * framerate * 0.4), framerate, latencyMode: 'quality' });
+  encoder.configure(encoderConfig(pw, ph, framerate));
   return { muxer, encoder, state };
 }
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
@@ -136,10 +154,23 @@ export async function analyzeProxy(blob, { frames = 10, fw = 320, thumbW = 640 }
   return out;
 }
 
+// Whether this browser can H.264-encode the proxy. Checked up front: an
+// unsupported config otherwise only errors at encoder.flush(), AFTER a full
+// decode pass — and then the next tier does the same, so the progress bar ran
+// to 100% two or three times before ffmpeg finally took over.
+async function canEncodeH264(Mux) {
+  if (!('VideoEncoder' in window) || !Mux) return false;
+  try {
+    const s = await VideoEncoder.isConfigSupported({ codec: 'avc1.4d0028', width: 1280, height: 720, bitrate: 1e7, framerate: 30, latencyMode: 'quality' });
+    return !!s.supported;
+  } catch { return false; }
+}
+
 export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl) {
   const Mux = window.Mp4Muxer;
-  const canEncode = ('VideoEncoder' in window) && !!Mux;
+  const canEncode = await canEncodeH264(Mux);
   const errs = [];
+  const tierFailed = (tier, e) => { const msg = e?.message || String(e); errs.push(tier + ': ' + msg); console.warn(`[proxy] ${tier} failed for ${file.name} — ${msg}`); };
 
   // MotionCam RAW: decode + develop in the mcraw wasm worker — no other tier
   // can read it (ffmpeg has no mcraw demuxer), so this path is authoritative.
@@ -162,19 +193,24 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
   const fps = Math.min(60, Math.max(1, Math.round(dem?.fps || 30)));
 
   // tier 1: WebCodecs decode
+  let decodeFailed = false;
   if (canEncode && dem && decodeSupported) {
     try { return await proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file); }
-    catch (e) { errs.push('webcodecs: ' + (e?.message || e)); }
+    catch (e) { tierFailed('webcodecs', e); decodeFailed = /decode error/.test(e?.message || ''); }
   }
   if (ctl?.cancelled) throw new Error('cancelled');
-  // tier 2: <video> element (OS-backed decode)
-  if (canEncode) {
+  // tier 2: <video> element (OS-backed decode). Skipped when WebCodecs claimed
+  // the codec and then failed decoding it: <video> sits on the same platform
+  // decoder, so it would just burn a real-time pass before failing too.
+  if (canEncode && !decodeFailed) {
+    onProgress?.(0);
     try { return await proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl); }
-    catch (e) { errs.push('video: ' + (e?.message || e)); }
+    catch (e) { tierFailed('video', e); }
   }
   if (ctl?.cancelled) throw new Error('cancelled');
   // tier 3: ffmpeg.wasm software decode+encode — the universal last resort
   try {
+    onProgress?.(0);
     onStatus?.('Converting with ffmpeg.wasm…');
     if (ctl) ctl.ffmpeg = true;   // deletion now needs an engine abort
     const blob = await transcodeToProxy(file, targetH, onProgress, onStatus,
@@ -182,7 +218,7 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
     let w = 0, h = 0;
     try { const pm = await probe(blob); w = pm.width || 0; h = pm.height || 0; if (pm.url) URL.revokeObjectURL(pm.url); } catch {}
     return { url: URL.createObjectURL(blob), blob, width: w, height: h, size: blob.size, method: 'ffmpeg' };
-  } catch (e) { errs.push('ffmpeg: ' + (e?.message || e)); }
+  } catch (e) { tierFailed('ffmpeg', e); }
 
   throw new Error(errs.join(' | ') || 'no available decode path');
 }
@@ -198,6 +234,7 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
   const dispH = (rot === 90 || rot === 270) ? width : height;
   const ph = even(targetH), pw = even(dispW * (ph / dispH));
   // decoded up front: the muxer needs the audio track declared at construction
+  await checkEncoder(pw, ph, framerate);
   const audio = file ? await sourceAudio(file) : null;
   const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, framerate, audio);
 
@@ -230,11 +267,23 @@ async function proxyViaWebCodecs(Mux, dem, targetH, onProgress, ctl, file) {
     error: (e) => { decErr = e; },
   });
   decoder.configure({ codec, description });
+  // Feed with backpressure: queuing every sample at once let a decode/encode
+  // error surface only after the whole clip was "done", and held thousands of
+  // 4K chunks and frames in flight. 'dequeue' events aren't throttled in a
+  // hidden tab the way timers are; the timeout is only a safety net.
+  const drained = () => new Promise((r) => {
+    const t = setTimeout(r, 50);
+    const go = () => { clearTimeout(t); r(); };
+    decoder.addEventListener('dequeue', go, { once: true });
+    encoder.addEventListener('dequeue', go, { once: true });
+  });
   for (const s of samples) {
-    if (decErr) break;
+    if (decErr || state.err) break;
     if (ctl?.cancelled) { decErr = new Error('cancelled'); break; }
     decoder.decode(toChunk(s, timescale));
+    while (!decErr && !state.err && (decoder.decodeQueueSize > 6 || encoder.encodeQueueSize > 6)) await drained();
   }
+  if (state.err) { try { decoder.close(); encoder.close(); } catch {} throw new Error('encode error: ' + (state.err.message || state.err)); }
   await decoder.flush().catch((e) => { decErr = decErr || e; });
   if (decErr) { try { decoder.close(); encoder.close(); } catch {} throw new Error('decode error: ' + (decErr.message || decErr)); }
   await encoder.flush();
@@ -263,6 +312,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
     if (!W0 || !H0) throw new Error('the browser could not decode this file (unsupported codec/container)');
     const ph = even(targetH), pw = even(W0 * (ph / H0));
     const fr = Math.min(60, Math.max(1, Math.round(fps)));
+    await checkEncoder(pw, ph, fr);
     const audio = await sourceAudio(file);
     const { muxer, encoder, state } = mkEncoder(Mux, pw, ph, fr, audio);
     const canvas = new OffscreenCanvas(pw, ph);
@@ -282,6 +332,7 @@ async function proxyViaVideo(Mux, file, targetH, fps, onProgress, ctl) {
         v.onended = () => done(resolve);
         const step = (now, meta) => {
           if (ctl?.cancelled) { done(reject, new Error('cancelled')); return; }
+          if (state.err) { done(reject, new Error('encode error: ' + (state.err.message || state.err))); return; }
           try {
             cx.drawImage(v, 0, 0, pw, ph);
             const ts = Math.max(last + 1, Math.round((meta.mediaTime || v.currentTime) * 1e6)); last = ts;

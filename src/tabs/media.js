@@ -288,13 +288,24 @@ async function runQueue() {
   const prog = el('proxyProg');
   try {
     const targetH = parseInt(el('proxyH').value, 10) || 720;
+    // the sidebar bar shows the whole batch (clips done + this clip's share);
+    // each card shows its own clip
+    let qDone = 0, first = true;
+    const setTotal = (p) => {
+      const total = qDone + 1 + proxyQueue.length;
+      prog.firstElementChild.style.width = ((qDone + p) / total * 100).toFixed(1) + '%';
+    };
     while (proxyQueue.length) {
+      if (!first) qDone++;   // the previous clip finished (or was skipped)
+      first = false;
       const m = proxyQueue.shift();
       if (!m || !m.file || m.removed) { if (m) m.proxyStatus = m.file ? m.proxyStatus : 'unlinked'; continue; }
       const key = proxyKey(m.file, targetH);
       // status FIRST so the UI reflects progress even if the OPFS lookup is slow
-      m.proxyStatus = 'building'; el('proxyStat').textContent = 'building ' + m.name;
-      prog.classList.remove('hidden'); prog.firstElementChild.style.width = '0%'; updateCard(m);
+      m.proxyStatus = 'building';
+      el('proxyStat').textContent = `building ${qDone + 1}/${qDone + 1 + proxyQueue.length}`;
+      el('proxyStat').title = m.name;
+      prog.classList.remove('hidden'); setTotal(0); updateCard(m);
       try {
         // reuse a cached proxy from OPFS (timeout-guarded so a hung FS can't freeze the queue)
         const cached = m._proxyForce ? null : await withTimeout(loadProxy(key), 4000, 'opfs').catch(() => null);
@@ -311,7 +322,7 @@ async function runQueue() {
         m._proxyCtl = ctl;
         const res = await makeProxy(m.file, targetH,
           (p) => {
-            prog.firstElementChild.style.width = (p * 100).toFixed(0) + '%';
+            setTotal(p);
             m.proxyProgress = p;
             const c = cards.get(m.id); const bar = c && c.querySelector('.card-prog i');
             if (bar) bar.style.width = Math.round(p * 100) + '%';

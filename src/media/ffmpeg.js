@@ -140,16 +140,26 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP,
 
   const logs = [];
   let beat = performance.now();   // liveness: any log/progress resets it
-  const logCb = ({ message }) => { beat = performance.now(); logs.push(message); if (logs.length > 80) logs.shift(); };
   const t0 = performance.now();
-  const progCb = ({ progress }) => {
-    beat = performance.now();
-    const p = Math.max(0, Math.min(0.99, progress || 0));
+  // Progress from THIS run's own log (output time= over input Duration, or the
+  // -t length) — ffmpeg.wasm's 'progress' event carries a stale value from the
+  // previous exec on a reused core, so a second clip opened at "99%".
+  const hms = (h, m, sec) => (+h) * 3600 + (+m) * 60 + parseFloat(sec);
+  let total = opts.dur || 0;
+  const report = (p) => {
+    p = Math.max(0, Math.min(0.99, p));
     onProgress?.(p);
     let eta = '';
     if (p > 0.03) { const secs = ((performance.now() - t0) / 1000) / p * (1 - p); eta = secs > 90 ? ` · ~${Math.round(secs / 60)} min left` : ` · ~${Math.round(secs)}s left`; }
     onStatus?.('converting…' + eta, p);
   };
+  const logCb = ({ message }) => {
+    beat = performance.now(); logs.push(message); if (logs.length > 80) logs.shift();
+    let m;
+    if (!total && (m = /Duration: (\d+):(\d+):([\d.]+)/.exec(message))) total = Math.max(0, hms(m[1], m[2], m[3]) - (opts.ss || 0));
+    else if (total && (m = /time=(\d+):(\d+):([\d.]+)/.exec(message))) report(hms(m[1], m[2], m[3]) / total);
+  };
+  const progCb = () => { beat = performance.now(); };
   ff.on('log', logCb);
   ff.on('progress', progCb);
   // DEADLOCK WATCHDOG: the multi-thread core sometimes never returns from
