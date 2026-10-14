@@ -149,14 +149,15 @@ export async function makeProxy(file, targetH, onProgress, onStatus, hintMP, ctl
   }
 
   // Try WebCodecs decode when the container demuxes AND the codec is supported.
+  // The support check runs on the moov alone, so an undecodable original (10-bit
+  // 4:2:2 HEVC without hardware) isn't read end to end before ffmpeg gets it.
   let dem = null, decodeSupported = false;
+  const supported = async ({ codec, description }) => ('VideoDecoder' in window) &&
+    !!(await VideoDecoder.isConfigSupported({ codec, description }).catch(() => ({ supported: false }))).supported;
   try {
-    dem = await demux(file);
-    if (dem.samples.length) {
-      const s = await VideoDecoder.isConfigSupported({ codec: dem.codec, description: dem.description }).catch(() => ({ supported: false }));
-      decodeSupported = !!s.supported;
-    }
-  } catch { /* demux failed (e.g. some MOV) — fall through */ }
+    dem = await demux(file, { accept: supported });
+    decodeSupported = dem.samples.length > 0;
+  } catch (e) { if (e?.header) dem = e.header; /* else demux failed (e.g. some MOV) — fall through */ }
 
   const fps = Math.min(60, Math.max(1, Math.round(dem?.fps || 30)));
 

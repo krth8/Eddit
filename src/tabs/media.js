@@ -3,7 +3,7 @@ import { state, addMedia, getMedia, appendClip, bus } from '../state.js';
 import { el, $$, fmtShort, fmtTC, toast, uid, clamp } from '../util.js';
 import { probe, makeStrip } from '../media/probe.js';
 import { makeProxy, codecSupport, analyzeProxy } from '../media/proxy.js';
-import { demux } from '../media/demux.js';
+import { demuxHeader } from '../media/demux.js';
 import { pickMedia, pickFolder, isMediaFile, isAudioFile, handleMap, pathMap } from '../media/pick.js';
 import { proxyKey, isCurrentProxyKey, loadProxy, saveProxy, proxyBytes, clearProxies } from '../store.js';
 import { findLut, LUT_CATEGORIES } from '../luts.js';
@@ -209,19 +209,17 @@ async function importFiles(files, { explicit = true } = {}) {
       if (meta.duration && !m.duration) m.duration = meta.duration;
       if (meta.thumb) m.thumb = meta.thumb;   // fresh thumb also on re-link
       if (!m.width || !m.height) {
-        // real dimensions from the container demuxer — WebCodecs often decodes
-        // what <video> won't, so 0×0 here is not "undecodable". Only for
-        // modest files: the demuxer reads the WHOLE file into memory, and for
-        // big camera originals the proxy supplies the dimensions anyway.
-        if (file.size < 3e8) {
-          try {
-            const d = await demux(file);
-            let W = d.width, H = d.height;
-            if (d.rotation === 90 || d.rotation === 270) { const t = W; W = H; H = t; }
-            if (W && H) { m.width = W; m.height = H; }
-            if (!m.duration && d.duration) m.duration = d.duration;
-          } catch (e) { console.log('[import] demux failed', file.name, e?.message || e); }
-        }
+        // real dimensions from the container header — WebCodecs often decodes
+        // what <video> won't, so 0×0 here is not "undecodable". Header-only,
+        // so big camera originals get dims too (the ffmpeg tier sizes its
+        // thread count from them).
+        try {
+          const d = await demuxHeader(file);
+          let W = d.width, H = d.height;
+          if (d.rotation === 90 || d.rotation === 270) { const t = W; W = H; H = t; }
+          if (W && H) { m.width = W; m.height = H; }
+          if (!m.duration && d.duration) m.duration = d.duration;
+        } catch (e) { console.log('[import] demux failed', file.name, e?.message || e); }
       }
     } catch (e) { console.warn('[import] probe failed', file.name, e); }
     updateCard(m);

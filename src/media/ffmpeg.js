@@ -191,16 +191,26 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP,
     // files mean big frames. (A separate ffmpeg header-probe exec was tried
     // and removed: every exec EXIT is a deadlock opportunity in the MT core.)
     const mp = (hintMP || 0) / 1e6;
-    // HARD CAP 4: the wasm pthread pool is small, and asking for many threads
-    // (decoder AND encoder each take a set) deadlocks a fresh core at thread
-    // SPAWN — stuck at 0% right after "Stream mapping", before the first
-    // frame. wasm x264 tops out around 4 threads anyway. Big frames still run
-    // narrower so the per-thread frame buffers fit the heap.
-    let threads = _mt ? 4 : 1;
-    if (lowMem) threads = 1;
-    else if (mp > 8 || (!mp && file.size > 150e6)) threads = 2;   // 4K/5K/6K+
+    // Software HEVC decode is ~95% of the run (encode + scale of a 720p
+    // all-intra proxy is nearly free), so threads go to the DECODER. Measured
+    // on 4K 4:2:2 10-bit: decoder 4 / encoder 1 runs ~1.8x faster than 2/2.
+    // The pthread pool is 32 workers and the old spawn deadlock came from
+    // "auto" thread counts (decoder + x264 + filtergraph each sized to the
+    // core count) exhausting it — so every count here is explicit, and the
+    // total stays well under the pool. The heap is a fixed 1 GB on the MT
+    // core: 4K-class frames (~33 MB at 4:2:2 10-bit) fit 8 frame threads,
+    // 6K/8K frames still run narrow.
+    const cores = navigator.hardwareConcurrency || 4;
+    const bigFrame = mp > 9 || (!mp && file.size > 150e6);   // > DCI 4K, or unknown + big file
+    let decThreads = _mt ? Math.max(2, Math.min(8, cores)) : 1;
+    if (lowMem) decThreads = 1;
+    else if (bigFrame) decThreads = Math.min(decThreads, 2);
+    // x264 only matters at delivery sizes (export conform); a 720p proxy
+    // encodes faster than one thread can decode its source
+    const encThreads = (_mt && !lowMem && targetH > 1080) ? 2 : 1;
+    console.log(`[ffmpeg] threads: decode ${decThreads}, encode ${encThreads} (${mp ? mp.toFixed(1) + ' MP' : 'dims unknown'})`);
     const code = await ff.exec([
-      '-threads', String(threads),
+      '-threads', String(decThreads),
       // decoder shortcuts: skip the in-loop deblock filter and allow non-spec
       // speedups — invisible at proxy scale, and HEVC 10-bit software decode
       // is the dominant cost of this tier
@@ -208,11 +218,12 @@ async function runTranscode(file, targetH, onProgress, onStatus, lowMem, hintMP,
       ...(opts.ss ? ['-ss', String(opts.ss)] : []),
       '-i', inPath,
       ...(opts.dur ? ['-t', String(opts.dur)] : []),
+      '-filter_threads', '1',
       '-vf', `scale=-2:${Math.round(targetH / 2) * 2}:flags=${opts.crf ? 'bicubic' : 'fast_bilinear'},format=yuv420p`,
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', String(opts.crf ?? 23), '-g', String(opts.gop ?? 1),
       // all-intra needs no lookahead — dropping it saves per-thread buffers
       '-x264-params', 'rc-lookahead=0:sync-lookahead=0',
-      '-threads', String(threads),
+      '-threads', String(encThreads),
       // The proxy carries the audio: playback prefers the proxy over the source
       // (engine._srcFor), so stripping it here made every clip go silent the
       // moment its proxy landed. AAC 128k stereo is cheap next to the video.

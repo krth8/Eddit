@@ -5,57 +5,80 @@ const MP4Box = window.MP4Box;
 // (Getting this wrong silently kills WebCodecs decode → everything falls to ffmpeg.)
 const DataStream = window.DataStream || (MP4Box && MP4Box.DataStream);
 
-export function demux(file) {
-  return new Promise((resolve, reject) => {
-    if (!MP4Box) return reject(new Error('mp4box not loaded'));
-    const mp4 = MP4Box.createFile();
-    const samples = [];
-    let track = null;
+// Reads in chunks, so a multi-GB camera file never needs one giant buffer.
+// `accept(header)` runs once the moov is parsed: return false to stop before
+// the sample data is read (the rejection carries `.header`) — the proxy
+// builder uses it to bail out of a codec WebCodecs can't decode without first
+// pulling the whole file through mp4box just to hand it to ffmpeg.wasm.
+const CHUNK = 32 * 1024 * 1024;
 
-    mp4.onError = (e) => reject(new Error('demux: ' + e));
-    mp4.onReady = (info) => {
-      try {
-        track = (info?.videoTracks || [])[0];
-        if (!track) return reject(new Error('No video track'));
-        mp4.setExtractionOptions(track.id, null, { nbSamples: Number.MAX_SAFE_INTEGER });
-        mp4.start();
-      } catch (e) { reject(e); }
-    };
-    mp4.onSamples = (id, user, s) => { for (const x of s) samples.push(x); };
+export async function demux(file, { accept } = {}) {
+  if (!MP4Box) throw new Error('mp4box not loaded');
+  const mp4 = MP4Box.createFile();
+  const samples = [];
+  let track = null, err = null, gate = null, header = null;
 
-    const reader = new FileReader();
-    // EVERYTHING inside onload must be caught: mp4box parses synchronously in
-    // appendBuffer and THROWS on containers it mishandles (e.g. Kinefinity
-    // ProRes MOVs). An uncaught throw here leaves the promise pending forever
-    // and kills the whole import instead of falling through to ffmpeg.wasm.
-    reader.onload = () => {
-      try {
-        const buf = reader.result;
-        buf.fileStart = 0;
-        mp4.appendBuffer(buf);
-        mp4.flush();
-        if (!track) return reject(new Error('No video track'));
-        const description = getDescription(mp4, track);
-        const durSec = track.samples_duration && track.timescale ? (track.samples_duration / track.timescale)
-          : (track.duration && track.timescale ? track.duration / track.timescale : 0);
-        const fps = track.nb_samples && durSec ? (track.nb_samples / durSec) : 30;
-        resolve({
-          codec: track.codec,
-          description,
-          samples,
-          track,
-          width: track.track_width || track.video?.width,
-          height: track.track_height || track.video?.height,
-          duration: durSec,
-          timescale: track.timescale,
-          fps: Math.round(fps),
-          rotation: getRotation(mp4, track),
-        });
-      } catch (e) { reject(e); }
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(file);
-  });
+  mp4.onError = (e) => { err = new Error('demux: ' + e); };
+  mp4.onReady = (info) => {
+    track = (info?.videoTracks || [])[0];
+    if (!track) { err = new Error('No video track'); return; }
+    if (accept) { header = headerOf(mp4, track); gate = Promise.resolve(accept(header)); }
+    mp4.setExtractionOptions(track.id, null, { nbSamples: Number.MAX_SAFE_INTEGER });
+    mp4.start();
+  };
+  mp4.onSamples = (id, user, s) => { for (const x of s) samples.push(x); };
+
+  // mp4box parses synchronously in appendBuffer and THROWS on containers it
+  // mishandles (e.g. Kinefinity ProRes MOVs) — the caller must see a rejection
+  // so the import falls through to ffmpeg.wasm instead of hanging.
+  // While an `accept` gate is pending, follow appendBuffer's next-position hint:
+  // for a moov-at-end file (camera originals often write it last) it jumps
+  // straight past the mdat, so the gate decides before the media data is read.
+  // An accepted file whose mdat was skipped is then re-read sequentially.
+  let skipped = false;
+  for (let off = 0; off < file.size;) {
+    const buf = await file.slice(off, off + CHUNK).arrayBuffer();
+    buf.fileStart = off;
+    const next = mp4.appendBuffer(buf);
+    if (err) throw err;
+    if (accept && !track && Number.isFinite(next) && next > off + buf.byteLength) { off = next; skipped = true; }
+    else off += buf.byteLength;
+    if (gate) {
+      const ok = await gate; gate = null;
+      if (!ok) { const e = new Error('demux stopped after header'); e.header = header; throw e; }
+      if (skipped) return demux(file);
+    }
+  }
+  mp4.flush();
+  if (err) throw err;
+  if (!track) throw new Error('No video track');
+  return { ...headerOf(mp4, track), samples };
+}
+
+// Container metadata only (codec, dims, duration…) — stops reading as soon as
+// the moov is parsed, so it is cheap even on multi-GB originals (unless the
+// moov sits at the end of the file).
+export async function demuxHeader(file) {
+  try { await demux(file, { accept: () => false }); }
+  catch (e) { if (e.header) return e.header; throw e; }
+  throw new Error('no header');
+}
+
+function headerOf(mp4, track) {
+  const durSec = track.samples_duration && track.timescale ? (track.samples_duration / track.timescale)
+    : (track.duration && track.timescale ? track.duration / track.timescale : 0);
+  const fps = track.nb_samples && durSec ? (track.nb_samples / durSec) : 30;
+  return {
+    codec: track.codec,
+    description: getDescription(mp4, track),
+    track,
+    width: track.track_width || track.video?.width,
+    height: track.track_height || track.video?.height,
+    duration: durSec,
+    timescale: track.timescale,
+    fps: Math.round(fps),
+    rotation: getRotation(mp4, track),
+  };
 }
 
 // Display rotation from the tkhd matrix (16.16 fixed point). WebCodecs decodes
